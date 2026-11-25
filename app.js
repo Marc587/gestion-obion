@@ -649,7 +649,11 @@ function afficherActivitesObion() {
           </label>
         `).join("")}
       </div>
+<label>Participation financière par jeune (F CFA)</label>
+<input name="montantJeune" type="number" min="0" value="0" required>
 
+<label>Participation financière par chef (F CFA)</label>
+<input name="montantChef" type="number" min="0" value="0" required>
       <label>Description</label>
       <textarea name="description" placeholder="Lieu, programme, informations..."></textarea>
 

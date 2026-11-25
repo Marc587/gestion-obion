@@ -183,6 +183,8 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
   afficherJeunes();
 } else if (rubrique === "Présences") {
   afficherPresences();
+} else if (rubrique === "Cotisations") {
+  afficherCotisationsObion();
 } else if (rubrique === "Accueil") {
       location.reload();
     } else {
@@ -302,4 +304,118 @@ function afficherPresences() {
       historique.appendChild(bouton);
     });
   }
+}
+
+let montantCotisationObion = Number(
+  localStorage.getItem("obion_montant_cotisation") || 0
+);
+
+let paiementsObion = JSON.parse(
+  localStorage.getItem("obion_paiements_cotisation") || "{}"
+);
+
+function sauvegarderCotisationsObion() {
+  localStorage.setItem(
+    "obion_montant_cotisation",
+    montantCotisationObion
+  );
+
+  localStorage.setItem(
+    "obion_paiements_cotisation",
+    JSON.stringify(paiementsObion)
+  );
+}
+
+function afficherCotisationsObion() {
+  const annee = new Date().getFullYear();
+
+  message.innerHTML = `
+    <h2>Cotisations internes</h2>
+
+    <label>Montant annuel de la cotisation (F CFA)</label>
+    <input id="montantObion" type="number" min="0"
+      value="${montantCotisationObion}">
+
+    <button id="sauverMontantObion">Enregistrer le montant</button>
+
+    <h3>Suivi des paiements — ${annee}</h3>
+    <div id="listeCotisationsObion"></div>
+
+    <h3>Résumé</h3>
+    <p id="resumeCotisationsObion"></p>
+
+    <button id="sauverPaiementsObion">Enregistrer les paiements</button>
+  `;
+
+  document.getElementById("sauverMontantObion").addEventListener("click", () => {
+    const montant = Number(document.getElementById("montantObion").value);
+
+    if (montant < 0 || !Number.isFinite(montant)) {
+      alert("Montant invalide.");
+      return;
+    }
+
+    montantCotisationObion = montant;
+    sauvegarderCotisationsObion();
+    afficherCotisationsObion();
+  });
+
+  const liste = document.getElementById("listeCotisationsObion");
+
+  let totalRecu = 0;
+  let totalDu = jeunes.length * montantCotisationObion;
+
+  jeunes.forEach((jeune, index) => {
+    const cle = annee + "_" + index;
+    const dejaPaye = Number(paiementsObion[cle] || 0);
+
+    totalRecu += dejaPaye;
+
+    const ligne = document.createElement("div");
+    ligne.style.padding = "10px";
+    ligne.style.margin = "8px 0";
+    ligne.style.border = "1px solid #ddd";
+    ligne.style.borderRadius = "8px";
+
+    const nom = document.createElement("strong");
+    nom.textContent = jeune.nom + " — " + jeune.branche;
+
+    const info = document.createElement("p");
+    info.textContent =
+      "Cotisation : " + montantCotisationObion +
+      " F CFA | Déjà payé : " + dejaPaye +
+      " F CFA | Reste : " +
+      Math.max(0, montantCotisationObion - dejaPaye) + " F CFA";
+
+    const champ = document.createElement("input");
+    champ.type = "number";
+    champ.min = "0";
+    champ.placeholder = "Montant payé au total";
+    champ.value = dejaPaye;
+    champ.dataset.index = index;
+
+    ligne.append(nom, info, champ);
+    liste.appendChild(ligne);
+  });
+
+  document.getElementById("resumeCotisationsObion").textContent =
+    "Total attendu : " + totalDu + " F CFA | " +
+    "Total reçu : " + totalRecu + " F CFA | " +
+    "Reste à recevoir : " + Math.max(0, totalDu - totalRecu) + " F CFA";
+
+  document.getElementById("sauverPaiementsObion").addEventListener("click", () => {
+    document.querySelectorAll("#listeCotisationsObion input").forEach((champ) => {
+      const index = champ.dataset.index;
+      const cle = annee + "_" + index;
+      const montant = Number(champ.value);
+
+      if (montant >= 0 && Number.isFinite(montant)) {
+        paiementsObion[cle] = montant;
+      }
+    });
+
+    sauvegarderCotisationsObion();
+    afficherCotisationsObion();
+    alert("Paiements enregistrés.");
+  });
 }

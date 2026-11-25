@@ -188,6 +188,8 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
 } else if (rubrique === "Chefs") {
   chefEnModification = null;
   afficherChefsObion();
+     } else if (rubrique === "Activités") {
+  afficherActivitesObion();
 } else if (rubrique === "Accueil") {
       location.reload();
     } else {

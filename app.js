@@ -314,6 +314,14 @@ let paiementsObion = JSON.parse(
   localStorage.getItem("obion_paiements_cotisation") || "{}"
 );
 
+let moisCotisation = new Date().getMonth() + 1;
+let anneeCotisation = new Date().getFullYear();
+
+const nomsMoisObion = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
+];
+
 function sauvegarderCotisationsObion() {
   localStorage.setItem(
     "obion_montant_cotisation",
@@ -327,25 +335,53 @@ function sauvegarderCotisationsObion() {
 }
 
 function afficherCotisationsObion() {
-  const annee = new Date().getFullYear();
+  const periode = anneeCotisation + "_" + moisCotisation;
 
   message.innerHTML = `
-    <h2>Cotisations internes</h2>
+    <h2>Cotisations mensuelles</h2>
 
-    <label>Montant annuel de la cotisation (F CFA)</label>
+    <label>Montant mensuel par jeune (F CFA)</label>
     <input id="montantObion" type="number" min="0"
       value="${montantCotisationObion}">
 
     <button id="sauverMontantObion">Enregistrer le montant</button>
 
-    <h3>Suivi des paiements — ${annee}</h3>
+    <label>Mois à suivre</label>
+    <select id="moisObion">
+      ${nomsMoisObion.map((mois, index) => `
+        <option value="${index + 1}"
+          ${moisCotisation === index + 1 ? "selected" : ""}>
+          ${mois}
+        </option>
+      `).join("")}
+    </select>
+
+    <label>Année</label>
+    <input id="anneeObion" type="number" min="2020" max="2100"
+      value="${anneeCotisation}">
+
+    <h3>${nomsMoisObion[moisCotisation - 1]} ${anneeCotisation}</h3>
     <div id="listeCotisationsObion"></div>
 
-    <h3>Résumé</h3>
-    <p id="resumeCotisationsObion"></p>
+    <button id="sauverPaiementsObion">Enregistrer les paiements du mois</button>
 
-    <button id="sauverPaiementsObion">Enregistrer les paiements</button>
+    <h3>Résumé du mois</h3>
+    <p id="resumeCotisationsObion"></p>
   `;
+
+  document.getElementById("moisObion").addEventListener("change", (event) => {
+    moisCotisation = Number(event.target.value);
+    afficherCotisationsObion();
+  });
+
+  document.getElementById("anneeObion").addEventListener("change", (event) => {
+    const nouvelleAnnee = Number(event.target.value);
+
+    if (nouvelleAnnee >= 2020 && nouvelleAnnee <= 2100) {
+      anneeCotisation = nouvelleAnnee;
+      afficherCotisationsObion();
+    }
+  });
 
   document.getElementById("sauverMontantObion").addEventListener("click", () => {
     const montant = Number(document.getElementById("montantObion").value);
@@ -363,10 +399,10 @@ function afficherCotisationsObion() {
   const liste = document.getElementById("listeCotisationsObion");
 
   let totalRecu = 0;
-  let totalDu = jeunes.length * montantCotisationObion;
+  const totalDu = jeunes.length * montantCotisationObion;
 
   jeunes.forEach((jeune, index) => {
-    const cle = annee + "_" + index;
+    const cle = periode + "_" + index;
     const dejaPaye = Number(paiementsObion[cle] || 0);
 
     totalRecu += dejaPaye;
@@ -382,15 +418,15 @@ function afficherCotisationsObion() {
 
     const info = document.createElement("p");
     info.textContent =
-      "Cotisation : " + montantCotisationObion +
-      " F CFA | Déjà payé : " + dejaPaye +
+      "Dû : " + montantCotisationObion +
+      " F CFA | Payé : " + dejaPaye +
       " F CFA | Reste : " +
       Math.max(0, montantCotisationObion - dejaPaye) + " F CFA";
 
     const champ = document.createElement("input");
     champ.type = "number";
     champ.min = "0";
-    champ.placeholder = "Montant payé au total";
+    champ.placeholder = "Total payé pour ce mois";
     champ.value = dejaPaye;
     champ.dataset.index = index;
 
@@ -406,7 +442,7 @@ function afficherCotisationsObion() {
   document.getElementById("sauverPaiementsObion").addEventListener("click", () => {
     document.querySelectorAll("#listeCotisationsObion input").forEach((champ) => {
       const index = champ.dataset.index;
-      const cle = annee + "_" + index;
+      const cle = periode + "_" + index;
       const montant = Number(champ.value);
 
       if (montant >= 0 && Number.isFinite(montant)) {
@@ -416,6 +452,6 @@ function afficherCotisationsObion() {
 
     sauvegarderCotisationsObion();
     afficherCotisationsObion();
-    alert("Paiements enregistrés.");
+    alert("Paiements du mois enregistrés.");
   });
 }

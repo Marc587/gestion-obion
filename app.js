@@ -684,15 +684,21 @@ function afficherActivitesObion() {
         paye: 0
       }));
 
-    const nouvelleActivite = {
+  const nouvelleActivite = {
       id: Date.now(),
       titre: formulaire.get("titre").trim(),
       date: formulaire.get("date"),
       montantJeune: Number(formulaire.get("montantJeune") || 0),
-montantChef: Number(formulaire.get("montantChef") || 0),
+      montantChef: Number(formulaire.get("montantChef") || 0),
       branches: branchesChoisies,
       description: formulaire.get("description").trim(),
-      participants: participants
+      participants: participants,
+      chefsParticipants: chefsObion.map((chef) => ({
+        nom: chef.nom,
+        fonction: chef.fonction,
+        unite: chef.unite || "Groupe",
+        paye: 0
+      }))
     };
 
     activitesObion.push(nouvelleActivite);

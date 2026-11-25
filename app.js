@@ -2,42 +2,61 @@
 const message = document.getElementById("message");
 
 let jeunes = JSON.parse(localStorage.getItem("obion_jeunes") || "[]");
+let jeuneEnModification = null;
 
 function sauvegarder() {
   localStorage.setItem("obion_jeunes", JSON.stringify(jeunes));
 }
 
 function afficherJeunes() {
+  const jeune = jeuneEnModification !== null
+    ? jeunes[jeuneEnModification]
+    : null;
+
   message.innerHTML = `
     <h2>Gestion des jeunes</h2>
-    <p>Enregistre les jeunes de ton groupe.</p>
+    <p>Enregistre et modifie les fiches des jeunes.</p>
 
     <form id="formJeune">
       <label>Nom et prénoms *</label>
-      <input name="nom" required placeholder="Ex : Kouassi Jean">
+      <input name="nom" required placeholder="Nom et prénoms"
+        value="${jeune ? jeune.nom : ""}">
 
       <label>Date de naissance</label>
-      <input name="naissance" type="date">
+      <input name="naissance" type="date"
+        value="${jeune ? jeune.naissance : ""}">
 
       <label>Branche *</label>
       <select name="branche" required>
         <option value="">Choisir une branche</option>
-        <option>Oisillons</option>
-        <option>Louveteau</option>
-        <option>Troupier</option>
-        <option>Cheminot</option>
-        <option>Routier</option>
+        <option ${jeune && jeune.branche === "Oisillons" ? "selected" : ""}>Oisillons</option>
+        <option ${jeune && jeune.branche === "Louveteau" ? "selected" : ""}>Louveteau</option>
+        <option ${jeune && jeune.branche === "Troupier" ? "selected" : ""}>Troupier</option>
+        <option ${jeune && jeune.branche === "Cheminot" ? "selected" : ""}>Cheminot</option>
+        <option ${jeune && jeune.branche === "Routier" ? "selected" : ""}>Routier</option>
       </select>
 
       <label>Contact du parent</label>
-      <input name="parent" type="tel" placeholder="Numéro de téléphone">
+      <input name="parent" type="tel" placeholder="Numéro de téléphone"
+        value="${jeune ? jeune.parent : ""}">
 
-      <button type="submit">Enregistrer le jeune</button>
+      <button type="submit">
+        ${jeune ? "Enregistrer les modifications" : "Enregistrer le jeune"}
+      </button>
+
+      ${jeune ? '<button type="button" id="annulerModification">Annuler</button>' : ""}
     </form>
 
     <h3>Jeunes enregistrés : ${jeunes.length}</h3>
     <div id="listeJeunes"></div>
   `;
+
+  if (jeune) {
+    document.getElementById("annulerModification").addEventListener("click", () => {
+      jeuneEnModification = null;
+      afficherJeunes();
+    });
+  }
 
   const liste = document.getElementById("listeJeunes");
 
@@ -61,6 +80,16 @@ function afficherJeunes() {
       const parent = document.createElement("p");
       parent.textContent = "Parent : " + (jeune.parent || "Non renseigné");
 
+      const modifier = document.createElement("button");
+      modifier.textContent = "Modifier";
+      modifier.type = "button";
+
+      modifier.addEventListener("click", () => {
+        jeuneEnModification = index;
+        afficherJeunes();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+
       const supprimer = document.createElement("button");
       supprimer.textContent = "Supprimer";
       supprimer.type = "button";
@@ -68,12 +97,13 @@ function afficherJeunes() {
       supprimer.addEventListener("click", () => {
         if (confirm("Supprimer la fiche de " + jeune.nom + " ?")) {
           jeunes.splice(index, 1);
+          jeuneEnModification = null;
           sauvegarder();
           afficherJeunes();
         }
       });
 
-      fiche.append(nom, details, parent, supprimer);
+      fiche.append(nom, details, parent, modifier, supprimer);
       liste.appendChild(fiche);
     });
   }
@@ -83,12 +113,19 @@ function afficherJeunes() {
 
     const formulaire = new FormData(event.target);
 
-    jeunes.push({
+    const nouvelleFiche = {
       nom: formulaire.get("nom").trim(),
       naissance: formulaire.get("naissance"),
       branche: formulaire.get("branche"),
       parent: formulaire.get("parent").trim()
-    });
+    };
+
+    if (jeuneEnModification !== null) {
+      jeunes[jeuneEnModification] = nouvelleFiche;
+      jeuneEnModification = null;
+    } else {
+      jeunes.push(nouvelleFiche);
+    }
 
     sauvegarder();
     afficherJeunes();
@@ -100,6 +137,7 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
     const rubrique = bouton.dataset.name;
 
     if (rubrique === "Jeunes") {
+      jeuneEnModification = null;
       afficherJeunes();
     } else if (rubrique === "Accueil") {
       location.reload();
@@ -107,7 +145,6 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
       message.innerHTML = `
         <h2>${rubrique}</h2>
         <p>Cette rubrique sera activée progressivement.</p>
-        <button onclick="afficherJeunes()">Retour aux jeunes</button>
       `;
     }
 

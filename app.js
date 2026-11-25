@@ -711,7 +711,15 @@ montantChef: Number(formulaire.get("montantChef") || 0),
       <h3>${echapper(activite.titre)}</h3>
       <p><strong>Date :</strong> ${echapper(activite.date)}</p>
       <p><strong>Branches :</strong> ${activite.branches.map(echapper).join(", ")}</p>
-      <p><strong>Jeunes inscrits automatiquement :</strong> ${activite.participants.length}</p>
+     <p><strong>Jeunes inscrits automatiquement :</strong> ${activite.participants.length}</p>
+
+<p><strong>Participation par jeune :</strong>
+  ${(activite.montantJeune || 0).toLocaleString("fr-FR")} F CFA
+</p>
+
+<p><strong>Total prévu pour les jeunes :</strong>
+  ${(activite.participants.length * (activite.montantJeune || 0)).toLocaleString("fr-FR")} F CFA
+</p>
       <details>
         <summary>Voir les participants</summary>
         <ul>

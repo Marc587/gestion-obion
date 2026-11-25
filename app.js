@@ -185,6 +185,9 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
   afficherPresences();
 } else if (rubrique === "Cotisations") {
   afficherCotisationsObion();
+} else if (rubrique === "Chefs") {
+  chefEnModification = null;
+  afficherChefsObion();
 } else if (rubrique === "Accueil") {
       location.reload();
     } else {
@@ -453,5 +456,144 @@ function afficherCotisationsObion() {
     sauvegarderCotisationsObion();
     afficherCotisationsObion();
     alert("Paiements du mois enregistrés.");
+  });
+}
+
+let chefsObion = JSON.parse(
+  localStorage.getItem("obion_chefs") || "[]"
+);
+
+let chefEnModification = null;
+
+function sauvegarderChefsObion() {
+  localStorage.setItem("obion_chefs", JSON.stringify(chefsObion));
+}
+
+function afficherChefsObion() {
+  const chef = chefEnModification !== null
+    ? chefsObion[chefEnModification]
+    : null;
+
+  const valeur = (champ) => chef ? (chef[champ] || "") : "";
+
+  message.innerHTML = `
+    <h2>Gestion des chefs</h2>
+
+    <form id="formChef">
+      <label>Nom et prénoms *</label>
+      <input name="nom" required value="${valeur("nom")}">
+
+      <label>Fonction *</label>
+      <select name="fonction" required>
+        <option value="">Choisir une fonction</option>
+        <option ${valeur("fonction") === "Chef de Groupe" ? "selected" : ""}>Chef de Groupe</option>
+        <option ${valeur("fonction") === "Chef d’Unité" ? "selected" : ""}>Chef d’Unité</option>
+        <option ${valeur("fonction") === "Chef d’Unité Adjoint" ? "selected" : ""}>Chef d’Unité Adjoint</option>
+        <option ${valeur("fonction") === "Chef d’Unité Assistant" ? "selected" : ""}>Chef d’Unité Assistant</option>
+        <option ${valeur("fonction") === "Trésorier" ? "selected" : ""}>Trésorier</option>
+      </select>
+
+      <label>Branche ou unité</label>
+      <select name="unite">
+        <option value="">Choisir une unité</option>
+        <option ${valeur("unite") === "Oisillons" ? "selected" : ""}>Oisillons</option>
+        <option ${valeur("unite") === "Louveteau" ? "selected" : ""}>Louveteau</option>
+        <option ${valeur("unite") === "Troupier" ? "selected" : ""}>Troupier</option>
+        <option ${valeur("unite") === "Cheminot" ? "selected" : ""}>Cheminot</option>
+        <option ${valeur("unite") === "Routier" ? "selected" : ""}>Routier</option>
+      </select>
+
+      <label>Matricule ASCCI</label>
+      <input name="matricule" value="${valeur("matricule")}">
+
+      <label>Contact téléphonique</label>
+      <input name="contact" type="tel" value="${valeur("contact")}">
+
+      <button type="submit">
+        ${chef ? "Enregistrer les modifications" : "Ajouter le chef"}
+      </button>
+
+      ${chef ? '<button type="button" id="annulerChef">Annuler</button>' : ""}
+    </form>
+
+    <h3>Chefs enregistrés : ${chefsObion.length}</h3>
+    <div id="listeChefsObion"></div>
+  `;
+
+  if (chef) {
+    document.getElementById("annulerChef").addEventListener("click", () => {
+      chefEnModification = null;
+      afficherChefsObion();
+    });
+  }
+
+  const liste = document.getElementById("listeChefsObion");
+
+  chefsObion.forEach((chef, index) => {
+    const fiche = document.createElement("article");
+    fiche.style.padding = "12px";
+    fiche.style.margin = "10px 0";
+    fiche.style.border = "1px solid #ddd";
+    fiche.style.borderRadius = "10px";
+
+    const nom = document.createElement("strong");
+    nom.textContent = chef.nom;
+
+    const details = document.createElement("p");
+    details.textContent = chef.fonction + " • " + (chef.unite || "Groupe");
+
+    const matricule = document.createElement("p");
+    matricule.textContent = "Matricule ASCCI : " + (chef.matricule || "À renseigner");
+
+    const contact = document.createElement("p");
+    contact.textContent = "Contact : " + (chef.contact || "Non renseigné");
+
+    const modifier = document.createElement("button");
+    modifier.textContent = "Modifier";
+    modifier.type = "button";
+    modifier.addEventListener("click", () => {
+      chefEnModification = index;
+      afficherChefsObion();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    const supprimer = document.createElement("button");
+    supprimer.textContent = "Supprimer";
+    supprimer.type = "button";
+    supprimer.addEventListener("click", () => {
+      if (confirm("Supprimer la fiche de " + chef.nom + " ?")) {
+        chefsObion.splice(index, 1);
+        chefEnModification = null;
+        sauvegarderChefsObion();
+        afficherChefsObion();
+      }
+    });
+
+    fiche.append(nom, details, matricule, contact, modifier, supprimer);
+    liste.appendChild(fiche);
+  });
+
+  document.getElementById("formChef").addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const formulaire = new FormData(event.target);
+
+    const nouvelleFiche = {
+      nom: formulaire.get("nom").trim(),
+      fonction: formulaire.get("fonction"),
+      unite: formulaire.get("unite"),
+      matricule: formulaire.get("matricule").trim(),
+      contact: formulaire.get("contact").trim()
+    };
+
+    if (chefEnModification !== null) {
+      chefsObion[chefEnModification] = nouvelleFiche;
+      chefEnModification = null;
+    } else {
+      chefsObion.push(nouvelleFiche);
+    }
+
+    sauvegarderChefsObion();
+    afficherChefsObion();
   });
 }

@@ -676,11 +676,11 @@ function afficherActivitesObion() {
       return;
     }
 
-    const participants = jeunes
+  const participants = jeunes
       .filter((jeune) => branchesChoisies.includes(jeune.branche))
       .map((jeune) => ({
         nom: jeune.nom,
-        branche: jeune.branche
+        branche: jeune.branche,
         paye: 0
       }));
 

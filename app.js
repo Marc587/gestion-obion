@@ -707,29 +707,73 @@ montantChef: Number(formulaire.get("montantChef") || 0),
     return;
   }
 
-  liste.innerHTML = activitesObion.map((activite) => `
-    <div style="border:1px solid #ddd; padding:12px; margin:12px 0; border-radius:8px;">
-      <h3>${echapper(activite.titre)}</h3>
-      <p><strong>Date :</strong> ${echapper(activite.date)}</p>
-      <p><strong>Branches :</strong> ${activite.branches.map(echapper).join(", ")}</p>
-     <p><strong>Jeunes inscrits automatiquement :</strong> ${activite.participants.length}</p>
+ 
+  liste.innerHTML = activitesObion.map((activite, indexActivite) => {
+    const montantDu = activite.participants.length * (activite.montantJeune || 0);
+    const montantPaye = activite.participants.reduce(
+      (total, participant) => total + Number(participant.paye || 0),
+      0
+    );
+    const reste = Math.max(0, montantDu - montantPaye);
 
-<p><strong>Participation par jeune :</strong>
-  ${(activite.montantJeune || 0).toLocaleString("fr-FR")} F CFA
-</p>
+    return `
+      <div style="border:1px solid #ddd; padding:12px; margin:12px 0; border-radius:8px;">
+        <h3>${echapper(activite.titre)}</h3>
+        <p><strong>Date :</strong> ${echapper(activite.date)}</p>
+        <p><strong>Branches :</strong> ${activite.branches.map(echapper).join(", ")}</p>
 
-<p><strong>Total prévu pour les jeunes :</strong>
-  ${(activite.participants.length * (activite.montantJeune || 0)).toLocaleString("fr-FR")} F CFA
-</p>
-      <details>
-        <summary>Voir les participants</summary>
-        <ul>
-          ${activite.participants.map((participant) => `
-            <li>${echapper(participant.nom)} — ${echapper(participant.branche)}</li>
-          `).join("")}
-        </ul>
-      </details>
-      <p>${echapper(activite.description)}</p>
-    </div>
-  `).join("");
+        <p><strong>Jeunes inscrits :</strong> ${activite.participants.length}</p>
+        <p><strong>Total prévu :</strong> ${montantDu.toLocaleString("fr-FR")} F CFA</p>
+        <p><strong>Total payé :</strong> ${montantPaye.toLocaleString("fr-FR")} F CFA</p>
+        <p><strong>Reste à recevoir :</strong> ${reste.toLocaleString("fr-FR")} F CFA</p>
+
+        <details>
+          <summary>Participants et paiements</summary>
+          ${activite.participants.map((participant, indexParticipant) => {
+            const du = Number(activite.montantJeune || 0);
+            const paye = Number(participant.paye || 0);
+            const solde = Math.max(0, du - paye);
+
+            return `
+              <div style="border-top:1px solid #eee; padding:8px 0;">
+                <strong>${echapper(participant.nom)}</strong>
+                <p>${echapper(participant.branche)}</p>
+                <p>À payer : ${du.toLocaleString("fr-FR")} F CFA</p>
+                <label>Montant payé (F CFA)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="${du}"
+                  value="${paye}"
+                  data-activite="${indexActivite}"
+                  data-participant="${indexParticipant}"
+                  class="champPaiementActivite"
+                >
+                <p>Reste : ${solde.toLocaleString("fr-FR")} F CFA</p>
+              </div>
+            `;
+          }).join("")}
+        </details>
+
+        <p>${echapper(activite.description)}</p>
+      </div>
+    `;
+  }).join("");
+
+  document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
+    champ.addEventListener("change", () => {
+      const indexActivite = Number(champ.dataset.activite);
+      const indexParticipant = Number(champ.dataset.participant);
+      const montantDu = Number(activitesObion[indexActivite].montantJeune || 0);
+
+      let montant = Number(champ.value || 0);
+      montant = Math.max(0, Math.min(montant, montantDu));
+
+      activitesObion[indexActivite].participants[indexParticipant].paye = montant;
+
+      sauvegarderActivitesObion();
+      afficherActivitesObion();
+    });
+  });
 }
+

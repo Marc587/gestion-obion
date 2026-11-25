@@ -599,3 +599,122 @@ function afficherChefsObion() {
     afficherChefsObion();
   });
 }
+
+let activitesObion = JSON.parse(
+  localStorage.getItem("obion_activites") || "[]"
+);
+
+function sauvegarderActivitesObion() {
+  localStorage.setItem(
+    "obion_activites",
+    JSON.stringify(activitesObion)
+  );
+}
+
+function afficherActivitesObion() {
+  const branches = [
+    "Oisillons",
+    "Louveteau",
+    "Troupier",
+    "Cheminot",
+    "Routier"
+  ];
+
+  const echapper = (texte) =>
+    String(texte || "").replace(/[&<>"']/g, (caractere) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[caractere]);
+
+  message.innerHTML = `
+    <h2>Gestion des activités</h2>
+    <p>Créer une activité et choisir les branches concernées.</p>
+
+    <form id="formActivite">
+      <label>Nom de l’activité *</label>
+      <input name="titre" required placeholder="Ex. Sortie de groupe">
+
+      <label>Date de l’activité *</label>
+      <input name="date" type="date" required>
+
+      <label>Branches concernées *</label>
+      <div>
+        ${branches.map((branche) => `
+          <label style="display:block; margin:8px 0;">
+            <input type="checkbox" name="branches" value="${branche}">
+            ${branche}
+          </label>
+        `).join("")}
+      </div>
+
+      <label>Description</label>
+      <textarea name="description" placeholder="Lieu, programme, informations..."></textarea>
+
+      <button type="submit">Créer l’activité</button>
+    </form>
+
+    <hr>
+    <h3>Activités enregistrées</h3>
+    <div id="listeActivites"></div>
+  `;
+
+  document.getElementById("formActivite").addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const formulaire = new FormData(event.target);
+    const branchesChoisies = formulaire.getAll("branches");
+
+    if (branchesChoisies.length === 0) {
+      alert("Choisis au moins une branche.");
+      return;
+    }
+
+    const participants = jeunes
+      .filter((jeune) => branchesChoisies.includes(jeune.branche))
+      .map((jeune) => ({
+        nom: jeune.nom,
+        branche: jeune.branche
+      }));
+
+    const nouvelleActivite = {
+      id: Date.now(),
+      titre: formulaire.get("titre").trim(),
+      date: formulaire.get("date"),
+      branches: branchesChoisies,
+      description: formulaire.get("description").trim(),
+      participants: participants
+    };
+
+    activitesObion.push(nouvelleActivite);
+    sauvegarderActivitesObion();
+    afficherActivitesObion();
+  });
+
+  const liste = document.getElementById("listeActivites");
+
+  if (activitesObion.length === 0) {
+    liste.innerHTML = "<p>Aucune activité créée pour le moment.</p>";
+    return;
+  }
+
+  liste.innerHTML = activitesObion.map((activite) => `
+    <div style="border:1px solid #ddd; padding:12px; margin:12px 0; border-radius:8px;">
+      <h3>${echapper(activite.titre)}</h3>
+      <p><strong>Date :</strong> ${echapper(activite.date)}</p>
+      <p><strong>Branches :</strong> ${activite.branches.map(echapper).join(", ")}</p>
+      <p><strong>Jeunes inscrits automatiquement :</strong> ${activite.participants.length}</p>
+      <details>
+        <summary>Voir les participants</summary>
+        <ul>
+          ${activite.participants.map((participant) => `
+            <li>${echapper(participant.nom)} — ${echapper(participant.branche)}</li>
+          `).join("")}
+        </ul>
+      </details>
+      <p>${echapper(activite.description)}</p>
+    </div>
+  `).join("");
+}

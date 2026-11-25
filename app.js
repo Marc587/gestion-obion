@@ -687,6 +687,8 @@ function afficherActivitesObion() {
       id: Date.now(),
       titre: formulaire.get("titre").trim(),
       date: formulaire.get("date"),
+      montantJeune: Number(formulaire.get("montantJeune") || 0),
+montantChef: Number(formulaire.get("montantChef") || 0),
       branches: branchesChoisies,
       description: formulaire.get("description").trim(),
       participants: participants

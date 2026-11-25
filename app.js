@@ -681,6 +681,7 @@ function afficherActivitesObion() {
       .map((jeune) => ({
         nom: jeune.nom,
         branche: jeune.branche
+        paye: 0
       }));
 
     const nouvelleActivite = {

@@ -178,10 +178,12 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
   bouton.addEventListener("click", () => {
     const rubrique = bouton.dataset.name;
 
-    if (rubrique === "Jeunes") {
-      jeuneEnModification = null;
-      afficherJeunes();
-    } else if (rubrique === "Accueil") {
+   if (rubrique === "Jeunes") {
+  jeuneEnModification = null;
+  afficherJeunes();
+} else if (rubrique === "Présences") {
+  afficherPresences();
+} else if (rubrique === "Accueil") {
       location.reload();
     } else {
       message.innerHTML = `
@@ -196,3 +198,108 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
     });
   });
 });
+
+let appelDate = new Date().toISOString().slice(0, 10);
+
+let presences = JSON.parse(
+  localStorage.getItem("obion_presences") || "{}"
+);
+
+function sauvegarderPresences() {
+  localStorage.setItem("obion_presences", JSON.stringify(presences));
+}
+
+function afficherPresences() {
+  if (jeunes.length === 0) {
+    message.innerHTML = `
+      <h2>Présences</h2>
+      <p>Enregistre d'abord les jeunes dans la rubrique Jeunes.</p>
+    `;
+    return;
+  }
+
+  const appel = presences[appelDate] || {};
+
+  message.innerHTML = `
+    <h2>Gestion des présences</h2>
+
+    <label>Date de la réunion</label>
+    <input id="dateAppel" type="date" value="${appelDate}">
+
+    <h3>Appel du ${appelDate}</h3>
+    <div id="listeAppel"></div>
+
+    <button id="enregistrerAppel">Enregistrer les présences</button>
+
+    <h3>Historique des appels</h3>
+    <div id="historiqueAppels"></div>
+  `;
+
+  document.getElementById("dateAppel").addEventListener("change", (event) => {
+    appelDate = event.target.value;
+    afficherPresences();
+  });
+
+  const liste = document.getElementById("listeAppel");
+
+  jeunes.forEach((jeune, index) => {
+    const ligne = document.createElement("div");
+    ligne.style.padding = "10px";
+    ligne.style.margin = "8px 0";
+    ligne.style.border = "1px solid #ddd";
+    ligne.style.borderRadius = "8px";
+
+    const nom = document.createElement("strong");
+    nom.textContent = jeune.nom + " — " + jeune.branche;
+
+    const choix = document.createElement("select");
+    choix.dataset.index = index;
+
+    ["Présent", "Absent", "Absent justifié"].forEach((statut) => {
+      const option = document.createElement("option");
+      option.value = statut;
+      option.textContent = statut;
+      option.selected = (appel[index] || "Présent") === statut;
+      choix.appendChild(option);
+    });
+
+    ligne.append(nom, document.createElement("br"), choix);
+    liste.appendChild(ligne);
+  });
+
+  document.getElementById("enregistrerAppel").addEventListener("click", () => {
+    const resultats = {};
+
+    document.querySelectorAll("#listeAppel select").forEach((choix) => {
+      resultats[choix.dataset.index] = choix.value;
+    });
+
+    presences[appelDate] = resultats;
+    sauvegarderPresences();
+
+    alert("Présences enregistrées pour le " + appelDate);
+    afficherPresences();
+  });
+
+  const historique = document.getElementById("historiqueAppels");
+
+  const dates = Object.keys(presences).sort().reverse();
+
+  if (dates.length === 0) {
+    historique.textContent = "Aucun appel enregistré.";
+  } else {
+    dates.forEach((date) => {
+      const bouton = document.createElement("button");
+      bouton.textContent = "Consulter l'appel du " + date;
+      bouton.style.display = "block";
+      bouton.style.margin = "6px 0";
+
+      bouton.addEventListener("click", () => {
+        appelDate = date;
+        afficherPresences();
+      });
+
+      historique.appendChild(bouton);
+    });
+  }
+}

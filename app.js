@@ -13,32 +13,62 @@ function afficherJeunes() {
     ? jeunes[jeuneEnModification]
     : null;
 
+  const valeur = (champ) => jeune ? (jeune[champ] || "") : "";
+
   message.innerHTML = `
     <h2>Gestion des jeunes</h2>
-    <p>Enregistre et modifie les fiches des jeunes.</p>
+    <p>Fiches des jeunes et suivi de l'affiliation ASCCI.</p>
 
     <form id="formJeune">
       <label>Nom et prénoms *</label>
       <input name="nom" required placeholder="Nom et prénoms"
-        value="${jeune ? jeune.nom : ""}">
+        value="${valeur("nom")}">
 
       <label>Date de naissance</label>
       <input name="naissance" type="date"
-        value="${jeune ? jeune.naissance : ""}">
+        value="${valeur("naissance")}">
 
       <label>Branche *</label>
       <select name="branche" required>
         <option value="">Choisir une branche</option>
-        <option ${jeune && jeune.branche === "Oisillons" ? "selected" : ""}>Oisillons</option>
-        <option ${jeune && jeune.branche === "Louveteau" ? "selected" : ""}>Louveteau</option>
-        <option ${jeune && jeune.branche === "Troupier" ? "selected" : ""}>Troupier</option>
-        <option ${jeune && jeune.branche === "Cheminot" ? "selected" : ""}>Cheminot</option>
-        <option ${jeune && jeune.branche === "Routier" ? "selected" : ""}>Routier</option>
+        <option ${valeur("branche") === "Oisillons" ? "selected" : ""}>Oisillons</option>
+        <option ${valeur("branche") === "Louveteau" ? "selected" : ""}>Louveteau</option>
+        <option ${valeur("branche") === "Troupier" ? "selected" : ""}>Troupier</option>
+        <option ${valeur("branche") === "Cheminot" ? "selected" : ""}>Cheminot</option>
+        <option ${valeur("branche") === "Routier" ? "selected" : ""}>Routier</option>
       </select>
 
       <label>Contact du parent</label>
-      <input name="parent" type="tel" placeholder="Numéro de téléphone"
-        value="${jeune ? jeune.parent : ""}">
+      <input name="parent" type="tel"
+        placeholder="Numéro de téléphone"
+        value="${valeur("parent")}">
+
+      <h3>Affiliation nationale ASCCI</h3>
+
+      <label>Matricule ASCCI</label>
+      <input name="matricule" placeholder="Matricule"
+        value="${valeur("matricule")}">
+
+      <label>Année d'affiliation</label>
+      <input name="annee" type="number" min="2000" max="2100"
+        placeholder="Ex : 2026"
+        value="${valeur("annee")}">
+
+      <label>Cotisation nationale</label>
+      <select name="cotisation">
+        <option value="Non payée"
+          ${valeur("cotisation") === "Non payée" || !valeur("cotisation") ? "selected" : ""}>
+          Non payée
+        </option>
+        <option value="Payée"
+          ${valeur("cotisation") === "Payée" ? "selected" : ""}>
+          Payée
+        </option>
+      </select>
+
+      <label>Date de paiement</label>
+      <input name="datePaiement" type="date"
+        value="${valeur("datePaiement")}">
 
       <button type="submit">
         ${jeune ? "Enregistrer les modifications" : "Enregistrer le jeune"}
@@ -62,51 +92,59 @@ function afficherJeunes() {
 
   if (jeunes.length === 0) {
     liste.innerHTML = "<p>Aucun jeune enregistré pour le moment.</p>";
-  } else {
-    jeunes.forEach((jeune, index) => {
-      const fiche = document.createElement("article");
-      fiche.style.padding = "12px";
-      fiche.style.margin = "10px 0";
-      fiche.style.border = "1px solid #ddd";
-      fiche.style.borderRadius = "10px";
-
-      const nom = document.createElement("strong");
-      nom.textContent = jeune.nom;
-
-      const details = document.createElement("p");
-      details.textContent =
-        jeune.branche + " • " + (jeune.naissance || "Date non renseignée");
-
-      const parent = document.createElement("p");
-      parent.textContent = "Parent : " + (jeune.parent || "Non renseigné");
-
-      const modifier = document.createElement("button");
-      modifier.textContent = "Modifier";
-      modifier.type = "button";
-
-      modifier.addEventListener("click", () => {
-        jeuneEnModification = index;
-        afficherJeunes();
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      });
-
-      const supprimer = document.createElement("button");
-      supprimer.textContent = "Supprimer";
-      supprimer.type = "button";
-
-      supprimer.addEventListener("click", () => {
-        if (confirm("Supprimer la fiche de " + jeune.nom + " ?")) {
-          jeunes.splice(index, 1);
-          jeuneEnModification = null;
-          sauvegarder();
-          afficherJeunes();
-        }
-      });
-
-      fiche.append(nom, details, parent, modifier, supprimer);
-      liste.appendChild(fiche);
-    });
   }
+
+  jeunes.forEach((jeune, index) => {
+    const fiche = document.createElement("article");
+    fiche.style.padding = "12px";
+    fiche.style.margin = "10px 0";
+    fiche.style.border = "1px solid #ddd";
+    fiche.style.borderRadius = "10px";
+
+    const nom = document.createElement("strong");
+    nom.textContent = jeune.nom;
+
+    const details = document.createElement("p");
+    details.textContent =
+      jeune.branche + " • " + (jeune.naissance || "Date non renseignée");
+
+    const parent = document.createElement("p");
+    parent.textContent = "Parent : " + (jeune.parent || "Non renseigné");
+
+    const affiliation = document.createElement("p");
+    affiliation.textContent =
+      "Matricule ASCCI : " + (jeune.matricule || "À renseigner") +
+      " | Année : " + (jeune.annee || "Non renseignée");
+
+    const paiement = document.createElement("p");
+    paiement.textContent =
+      "Cotisation nationale : " + (jeune.cotisation || "Non payée") +
+      " | Date : " + (jeune.datePaiement || "Non renseignée");
+
+    const modifier = document.createElement("button");
+    modifier.textContent = "Modifier";
+    modifier.type = "button";
+    modifier.addEventListener("click", () => {
+      jeuneEnModification = index;
+      afficherJeunes();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    const supprimer = document.createElement("button");
+    supprimer.textContent = "Supprimer";
+    supprimer.type = "button";
+    supprimer.addEventListener("click", () => {
+      if (confirm("Supprimer la fiche de " + jeune.nom + " ?")) {
+        jeunes.splice(index, 1);
+        jeuneEnModification = null;
+        sauvegarder();
+        afficherJeunes();
+      }
+    });
+
+    fiche.append(nom, details, parent, affiliation, paiement, modifier, supprimer);
+    liste.appendChild(fiche);
+  });
 
   document.getElementById("formJeune").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -117,7 +155,11 @@ function afficherJeunes() {
       nom: formulaire.get("nom").trim(),
       naissance: formulaire.get("naissance"),
       branche: formulaire.get("branche"),
-      parent: formulaire.get("parent").trim()
+      parent: formulaire.get("parent").trim(),
+      matricule: formulaire.get("matricule").trim(),
+      annee: formulaire.get("annee"),
+      cotisation: formulaire.get("cotisation"),
+      datePaiement: formulaire.get("datePaiement")
     };
 
     if (jeuneEnModification !== null) {

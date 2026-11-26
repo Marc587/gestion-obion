@@ -44,7 +44,16 @@ let currentPedaScoutId = null;
 let currentPresId = null;
 let currentCampId = null;
 let currentAutoTarget = null;
-let currentActiveTab = "effectifs";
+let currentActiveTab = "dashboard";
+
+function withTimeout(promise, ms = 3500) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Délai Firebase dépassé")), ms)
+    )
+  ]);
+}
 
 function fPrix(n) {
   return Number(n || 0).toLocaleString("fr-FR") + " FCFA";
@@ -85,13 +94,32 @@ async function syncCloud(showAlertError = false) {
   normalizeDb();
   localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
   try {
-    await docRefObion.set(db, { merge: true });
+    await withTimeout(docRefObion.set(db, { merge: true }), 4000);
   } catch (err) {
     console.warn("Sauvegarde locale conservée, synchro cloud en attente :", err);
     if (showAlertError) {
       alert("Enregistré sur cet appareil. Vérifie la connexion internet pour partager avec les autres chefs.");
     }
   }
+}
+
+function isFinancierChef(chef) {
+  if (!chef) return false;
+  const text = `${chef.titre || ""} ${chef.fonction || ""}`.toLowerCase();
+  return text.includes("financier") || text.includes("trésorier") || text.includes("tresorier");
+}
+
+function isFinancierUser() {
+  if (!currentUser) return false;
+  const text = `${currentUser.titre || ""} ${currentUser.fonction || ""}`.toLowerCase();
+  return text.includes("financier") || text.includes("trésorier") || text.includes("tresorier");
+}
+
+function getDashboardRole() {
+  if (!currentUser) return "unite";
+  if (isFinancierUser()) return "financier";
+  if (currentUser.isAdmin) return "cg";
+  return "unite";
 }
 
 function getUsersList() {
@@ -112,7 +140,8 @@ function getUsersList() {
       chef.titre === "Coordinateur" ||
       chef.titre === "Groupe et ressources adultes" ||
       chef.fonction === "Chef de Groupe" ||
-      chef.fonction === "Membre du Comité";
+      chef.fonction === "Membre du Comité" ||
+      isFinancierChef(chef);
 
     const brancheMap = {
       Micou: "Oisillon",
@@ -152,12 +181,13 @@ function login() {
 
   if (user && user.pin === pin) {
     currentUser = user;
+    currentActiveTab = "dashboard";
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
     errorEl.style.display = "none";
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("appContainer").style.display = "block";
     applyRolePermissions();
-    renderAll();
+    nav("dashboard");
   } else {
     errorEl.style.display = "block";
   }
@@ -213,6 +243,164 @@ function nav(sectionName) {
   if (activeBtn) activeBtn.classList.add("active");
 
   renderAll();
+}
+
+function renderDashboard() {
+  const container = document.getElementById("dashboardContent");
+  if (!container || !currentUser) return;
+
+  const role = getDashboardRole();
+  const branches = ["Oisillon", "Meute", "Troupe", "Chemin", "Route"];
+
+  const totalEntrees = db.finances
+    .filter((f) => f.type === "in")
+    .reduce((sum, f) => sum + Number(f.montant || 0), 0);
+  const totalSorties = db.finances
+    .filter((f) => f.type === "out")
+    .reduce((sum, f) => sum + Number(f.montant || 0), 0);
+  const soldeCaisse = totalEntrees - totalSorties;
+
+  if (role === "cg") {
+    const jeunesAJour = db.scouts.filter((s) => s.cotisation).length;
+    const chefsAJour = db.chefs.filter((c) => c.cotisation).length;
+    const parBrancheHtml = branches
+      .map((b) => {
+        const count = db.scouts.filter((s) => s.branche === b).length;
+        return `<div class="card" style="margin-bottom:0; padding:14px;"><strong>${b}</strong><p style="font-size:1.3rem; margin-top:4px;">${count} <small style="font-size:0.8rem;">jeune(s)</small></p></div>`;
+      })
+      .join("");
+
+    container.innerHTML = `
+      <div class="card" style="border-left: 5px solid var(--c-cg);">
+        <h2 class="card-header">📊 Tableau de bord — Chef de Groupe</h2>
+        <p style="color:#555; margin-bottom:15px;">Vue d'ensemble du Groupe OBION (Saint Bernard d'Adiopodoumé KM17).</p>
+        <div class="grid-form">
+          <div class="card" style="margin-bottom:0; text-align:center;">
+            <small>Effectif Jeunes</small>
+            <h2 style="color:var(--text-main); margin-top:5px;">${db.scouts.length}</h2>
+            <small style="color:#27ae60;">${jeunesAJour} à jour de cotisation</small>
+          </div>
+          <div class="card" style="margin-bottom:0; text-align:center;">
+            <small>Maîtrise</small>
+            <h2 style="color:var(--c-cg); margin-top:5px;">${db.chefs.length}</h2>
+            <small>${chefsAJour} chef(s) à jour</small>
+          </div>
+          <div class="card" style="margin-bottom:0; text-align:center;">
+            <small>Solde de Caisse</small>
+            <h2 style="color:${soldeCaisse >= 0 ? "#27ae60" : "#c0392b"}; margin-top:5px;">${fPrix(soldeCaisse)}</h2>
+            <small>Entrées : ${fPrix(totalEntrees)} • Sorties : ${fPrix(totalSorties)}</small>
+          </div>
+          <div class="card" style="margin-bottom:0; text-align:center;">
+            <small>Camps & Appels</small>
+            <h2 style="color:#d35400; margin-top:5px;">${db.camps.length} / ${db.presences.length}</h2>
+            <small>Camps planifiés / Appels saisis</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-header">⚜️ Répartition par branche</h3>
+        <div class="grid-form">${parBrancheHtml}</div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
+          <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="nav('effectifs')">Gérer les effectifs</button>
+          <button class="btn btn-warning" onclick="nav('finances')">Voir la caisse</button>
+          <button class="btn btn-secondary" onclick="nav('maitrise')">Gérer la maîtrise</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (role === "financier") {
+    const scoutsImpayes = db.scouts.filter((s) => !s.cotisation).length;
+    const chefsImpayes = db.chefs.filter((c) => !c.cotisation).length;
+    const totalFraisCamps = db.camps.reduce((sum, c) => {
+      const parts = Array.isArray(c.participants) ? c.participants : [];
+      return sum + parts.reduce((acc, p) => acc + Number(p.paye || 0), 0);
+    }, 0);
+
+    container.innerHTML = `
+      <div class="card" style="border-left: 5px solid #27ae60;">
+        <h2 class="card-header">💰 Tableau de bord — Financier / Trésorier</h2>
+        <p style="color:#555; margin-bottom:15px;">Suivi de la trésorerie, des cotisations annuelles et des participations de camps.</p>
+        <div class="grid-form">
+          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #27ae60;">
+            <small>Total Entrées</small>
+            <h2 style="color:#27ae60; margin-top:5px;">${fPrix(totalEntrees)}</h2>
+          </div>
+          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #c0392b;">
+            <small>Total Sorties</small>
+            <h2 style="color:#c0392b; margin-top:5px;">${fPrix(totalSorties)}</h2>
+          </div>
+          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid var(--text-main);">
+            <small>Solde Caisse</small>
+            <h2 style="color:var(--text-main); margin-top:5px;">${fPrix(soldeCaisse)}</h2>
+          </div>
+          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #e67e22;">
+            <small>Cotisations à relancer</small>
+            <h2 style="color:#e67e22; margin-top:5px;">${scoutsImpayes} jeunes / ${chefsImpayes} chefs</h2>
+            <small>Encaissé camps : ${fPrix(totalFraisCamps)}</small>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
+          <button class="btn btn-warning" onclick="nav('finances')">Saisir une opération / Livre de caisse</button>
+          <button class="btn btn-secondary" onclick="nav('camps')">Suivre les paiements de camps</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const maBranche =
+    currentUser.brancheAutorisee && currentUser.brancheAutorisee !== "Toutes"
+      ? currentUser.brancheAutorisee
+      : "Toutes";
+  const mesScouts = db.scouts.filter((s) => maBranche === "Toutes" || s.branche === maBranche);
+  const mesAJour = mesScouts.filter((s) => s.cotisation).length;
+  const mesAppels = db.presences.filter(
+    (p) => maBranche === "Toutes" || p.branche === "Toutes" || p.branche === maBranche
+  );
+  const dernierAppel = mesAppels.length > 0 ? mesAppels[mesAppels.length - 1] : null;
+
+  const moyProg =
+    mesScouts.length > 0
+      ? Math.round(
+          mesScouts.reduce((acc, s) => {
+            const etapes = getEtapesBranche(s.branche);
+            const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
+            return acc + (valid.length / Math.max(1, etapes.length)) * 100;
+          }, 0) / mesScouts.length
+        )
+      : 0;
+
+  container.innerHTML = `
+    <div class="card" style="border-left: 5px solid #3498db;">
+      <h2 class="card-header">🏕️ Tableau de bord — Chef d'Unité (${maBranche})</h2>
+      <p style="color:#555; margin-bottom:15px;">Suivi quotidien de votre unité : effectifs, progression pédagogique et appels.</p>
+      <div class="grid-form">
+        <div class="card" style="margin-bottom:0; text-align:center;">
+          <small>Jeunes de l'unité</small>
+          <h2 style="color:var(--text-main); margin-top:5px;">${mesScouts.length}</h2>
+          <small style="color:#27ae60;">${mesAJour} à jour de cotisation</small>
+        </div>
+        <div class="card" style="margin-bottom:0; text-align:center;">
+          <small>Progression moyenne</small>
+          <h2 style="color:#27ae60; margin-top:5px;">${moyProg}%</h2>
+          <div class="progress-bg"><div class="progress-bar" style="width:${moyProg}%;"></div></div>
+        </div>
+        <div class="card" style="margin-bottom:0; text-align:center;">
+          <small>Dernier appel</small>
+          <h3 style="color:#3498db; margin-top:6px;">${dernierAppel ? `${dernierAppel.presents}/${dernierAppel.total} présents` : "Aucun appel"}</h3>
+          <small>${dernierAppel ? `${dernierAppel.titre} (${dernierAppel.date})` : "Prêt pour le prochain appel"}</small>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
+        <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="nav('effectifs')">Effectifs de l'unité</button>
+        <button class="btn btn-success" onclick="nav('pedagogie')">Progression pédagogique</button>
+        <button class="btn btn-secondary" onclick="nav('presences')">Faire l'appel</button>
+      </div>
+    </div>
+  `;
 }
 
 function autoBranch() {
@@ -1201,6 +1389,7 @@ function renderParrains() {
 
 function renderAll() {
   if (!currentUser) return;
+  renderDashboard();
   renderScouts();
   renderPedagogie();
   renderCamps();
@@ -1219,18 +1408,19 @@ async function initApp() {
   if (pDate && !pDate.value) pDate.value = todayStr;
   if (fDate && !fDate.value) fDate.value = todayStr;
 
+  normalizeDb();
+
   try {
-    const snap = await docRefObion.get();
-    if (snap.exists) {
+    const snap = await withTimeout(docRefObion.get(), 3500);
+    if (snap && snap.exists) {
       db = snap.data();
       normalizeDb();
       localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
     } else {
-      normalizeDb();
-      await docRefObion.set(db, { merge: true });
+      withTimeout(docRefObion.set(db, { merge: true }), 3500).catch(() => {});
     }
   } catch (err) {
-    console.warn("Chargement hors ligne / secours local :", err);
+    console.warn("Passage en mode local / secours :", err);
     normalizeDb();
   }
 
@@ -1246,7 +1436,7 @@ async function initApp() {
         currentUser = match;
         document.getElementById("appContainer").style.display = "block";
         applyRolePermissions();
-        renderAll();
+        nav(currentActiveTab || "dashboard");
         return;
       }
     } catch (_) {}

@@ -189,6 +189,26 @@ function findPrincipalCUForBranch(branche) {
   );
 }
 
+function buildCotisationReminderMessage(scout) {
+  return `Bonjour chers parents,\n\n${scout.nom} est bien enregistré(e) dans l'effectif (${scout.branche} — Groupe OBION). À ce jour, la cotisation annuelle de 2 500 FCFA n'a pas encore été réglée.\n\nNous vous rappelons que le paiement effectif de cette cotisation est indispensable pour que ${scout.nom} puisse participer à nos activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise si vous avez une question. Fraternellement, la Maîtrise — Groupe OBION.`;
+}
+
+function buildActivityParentMessage(titre, branche, datesTxt, lieu, montant) {
+  const fraisLine = Number(montant || 0) > 0
+    ? `\n\nLe montant à payer pour cette activité est de ${fPrix(montant)}.`
+    : "";
+  return `Bonjour chers parents,\n\nNous vous informons de l'activité « ${titre} » (${branche}) prévue ${datesTxt} à ${lieu}.${fraisLine}\n\nNous vous rappelons que le paiement effectif est indispensable pour que le jeune puisse participer à nos activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise. Fraternellement, la Maîtrise — Groupe OBION.`;
+}
+
+function buildAbsentParentMessage(scout, presence) {
+  const dateFr = presence && presence.date
+    ? new Date(presence.date).toLocaleDateString("fr-FR")
+    : "";
+  const titre = (presence && presence.titre) || "l'activité scoute";
+  const branche = (presence && presence.branche) || (scout && scout.branche) || "";
+  return `Bonjour chers parents,\n\nNous avons constaté l'absence de ${scout.nom} lors de « ${titre} » (${branche})${dateFr ? " du " + dateFr : ""}.\n\nLa régularité compte beaucoup dans la vie de l'unité, et nous vous rappelons que la participation aux activités suppose le respect de nos règles et le paiement effectif des cotisations.\n\nMerci de nous tenir informés si besoin. Fraternellement, la Maîtrise — Groupe OBION.`;
+}
+
 async function syncCloud(showAlertError = false) {
   normalizeDb();
   applyAppAndBrandLogos();
@@ -264,6 +284,7 @@ function getUsersList() {
       isAdjoint: false,
       isFinancier: true,
       canFullAdmin: true,
+      hasOverview: true,
       brancheAutorisee: "Toutes"
     }
   ];
@@ -457,7 +478,7 @@ function getAbsenceCountForScout(scoutNom, branche) {
 function getDefaultChecklist(type) {
   const base = [
     { label: "Valider le programme / fiche technique", done: false },
-    { label: "Préparer le budget / frais éventuels", done: false },
+    { label: "Préparer les frais / montant à payer", done: false },
     { label: "Informer les parents & recueillir autorisations", done: false },
     { label: "Vérifier l'intendance / matériel", done: false }
   ];
@@ -713,16 +734,18 @@ function openWaInfoForProgramme(progId) {
   const item = db.programme.find((p) => p.id === progId);
   if (!item) return;
   currentWaBranche = item.branche || "Toutes";
-  const fraisTxt = item.type === "Camp / Week-end" && Number(item.frais || 0) > 0
-    ? `\nParticipation : ${fPrix(item.frais)}`
-    : "";
   const datesTxt = item.fin && item.fin !== item.debut
     ? `du ${item.debut} au ${item.fin}`
     : `le ${item.debut}`;
 
   document.getElementById("mwa_titre").textContent = `📱 Informer les parents — ${item.titre}`;
-  document.getElementById("mwa_message").value =
-    `Bonjour chers parents, le Groupe OBION vous informe de l'activité « ${item.titre} » (${item.branche}) prévue ${datesTxt} à ${item.lieu}.${fraisTxt} Merci de votre accompagnement.`;
+  document.getElementById("mwa_message").value = buildActivityParentMessage(
+    item.titre,
+    item.branche,
+    datesTxt,
+    item.lieu,
+    item.type === "Camp / Week-end" ? item.frais : 0
+  );
   refreshWaRecipientsList();
   openM("modalWaInfo");
 }
@@ -731,10 +754,17 @@ function openWaInfoForCamp(campId) {
   const camp = db.camps.find((c) => c.id === campId);
   if (!camp) return;
   currentWaBranche = camp.branche || "Toutes";
-  const fraisTxt = Number(camp.frais || 0) > 0 ? `\nFrais : ${fPrix(camp.frais)}` : "";
+  const datesTxt = camp.fin && camp.fin !== camp.debut
+    ? `du ${camp.debut} au ${camp.fin}`
+    : `le ${camp.debut}`;
   document.getElementById("mwa_titre").textContent = `📱 Informer les parents — ${camp.titre}`;
-  document.getElementById("mwa_message").value =
-    `Bonjour chers parents, le camp « ${camp.titre} » (${camp.branche}) aura lieu à ${camp.lieu} du ${camp.debut} au ${camp.fin}.${fraisTxt} N'oubliez pas l'autorisation parentale.`;
+  document.getElementById("mwa_message").value = buildActivityParentMessage(
+    camp.titre,
+    camp.branche,
+    datesTxt,
+    camp.lieu,
+    camp.frais
+  );
   refreshWaRecipientsList();
   openM("modalWaInfo");
 }
@@ -804,7 +834,7 @@ function renderProgramme() {
           <h3>${p.titre}</h3>
           <p><strong>Type :</strong> ${p.type} | <strong>Statut :</strong> <strong>${p.statut}</strong></p>
           <p>📅 ${p.debut}${p.fin && p.fin !== p.debut ? " au " + p.fin : ""} • 📍 ${p.lieu || "-"} ${urgencyHtml}</p>
-          ${p.type === "Camp / Week-end" ? `<p>🏕️ Relié aux Camps • Frais : ${fPrix(p.frais)}</p>` : ""}
+          ${p.type === "Camp / Week-end" ? `<p>🏕️ Relié aux Camps • Montant à payer : ${fPrix(p.frais)}</p>` : ""}
           ${p.notes ? `<p style="font-style:italic; color:#444;">📝 ${p.notes}</p>` : ""}
           <div style="margin-top:8px;">
             <small>Préparation : ${pct}% (${doneCount}/${tasks.length} tâche(s))</small>
@@ -1581,16 +1611,6 @@ async function savePresence() {
   renderAll();
 }
 
-function buildAbsentParentMessage(scout, presence) {
-  const dateFr = presence && presence.date
-    ? new Date(presence.date).toLocaleDateString("fr-FR")
-    : "";
-  const titre = (presence && presence.titre) || "l'activité scoute";
-  const branche = (presence && presence.branche) || (scout && scout.branche) || "";
-  const resp = (presence && presence.resp) || "la maîtrise";
-  return `Bonjour parent de ${scout.nom}, nous avons noté son absence à « ${titre} » (${branche})${dateFr ? " du " + dateFr : ""}. Tout va bien ? Cordialement, ${resp} — Groupe OBION.`;
-}
-
 function openPresDetails(id) {
   const p = db.presences.find((item) => item.id === id);
   if (!p) return;
@@ -2043,7 +2063,7 @@ function renderScouts() {
   listEl.innerHTML = filtered
     .map((s) => {
       const waBtn = !s.cotisation && s.tel
-        ? `<a href="${getWaLink(s.tel, `Bonjour parent de ${s.nom}, rappel de cotisation annuelle de 2 500 FCFA pour le Groupe Obion.`)}" target="_blank" class="wa-btn">📱 Relancer (2 500 FCFA)</a>`
+        ? `<a href="${getWaLink(s.tel, buildCotisationReminderMessage(s))}" target="_blank" class="wa-btn">📱 Relancer (2 500 FCFA)</a>`
         : "";
       const cotiStatus = s.cotisation
         ? `<span class="status-dot status-green"></span> Cotisation annuelle : À jour`
@@ -2139,7 +2159,7 @@ function renderCamps() {
           <h3>${c.titre}</h3>
           <p><strong>Lieu :</strong> ${c.lieu}</p>
           <p><strong>Dates :</strong> ${c.debut} au ${c.fin}</p>
-          <p><strong>Frais :</strong> ${fPrix(c.frais)} | <strong>Inscrits :</strong> ${partList.length}</p>
+          <p><strong>Montant à payer :</strong> ${fPrix(c.frais)} | <strong>Inscrits :</strong> ${partList.length}</p>
           <p><strong>Encaissé :</strong> ${fPrix(totalPaye)}</p>
           <div class="item-actions no-print">
             <button class="btn btn-success" onclick="openCampPart('${c.id}')">👥 Inscrits & Paiements</button>

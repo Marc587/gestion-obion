@@ -714,12 +714,24 @@ function afficherActivitesObion() {
   }
 
  
-  liste.innerHTML = activitesObion.map((activite, indexActivite) => {
-    const montantDu = activite.participants.length * (activite.montantJeune || 0);
-    const montantPaye = activite.participants.reduce(
+ liste.innerHTML = activitesObion.map((activite, indexActivite) => {
+    const listeJeunes = activite.participants || [];
+    const listeChefs = activite.chefsParticipants || [];
+
+    const montantDuJeunes = listeJeunes.length * Number(activite.montantJeune || 0);
+    const montantPayeJeunes = listeJeunes.reduce(
       (total, participant) => total + Number(participant.paye || 0),
       0
     );
+
+    const montantDuChefs = listeChefs.length * Number(activite.montantChef || 0);
+    const montantPayeChefs = listeChefs.reduce(
+      (total, chef) => total + Number(chef.paye || 0),
+      0
+    );
+
+    const montantDu = montantDuJeunes + montantDuChefs;
+    const montantPaye = montantPayeJeunes + montantPayeChefs;
     const reste = Math.max(0, montantDu - montantPaye);
 
     return `
@@ -728,14 +740,14 @@ function afficherActivitesObion() {
         <p><strong>Date :</strong> ${echapper(activite.date)}</p>
         <p><strong>Branches :</strong> ${activite.branches.map(echapper).join(", ")}</p>
 
-        <p><strong>Jeunes inscrits :</strong> ${activite.participants.length}</p>
+        <p><strong>Jeunes inscrits :</strong> ${listeJeunes.length} | <strong>Chefs inscrits :</strong> ${listeChefs.length}</p>
         <p><strong>Total prévu :</strong> ${montantDu.toLocaleString("fr-FR")} F CFA</p>
         <p><strong>Total payé :</strong> ${montantPaye.toLocaleString("fr-FR")} F CFA</p>
         <p><strong>Reste à recevoir :</strong> ${reste.toLocaleString("fr-FR")} F CFA</p>
 
         <details>
-          <summary>Participants et paiements</summary>
-          ${activite.participants.map((participant, indexParticipant) => {
+          <summary>Jeunes participants et paiements</summary>
+          ${listeJeunes.length === 0 ? "<p>Aucun jeune inscrit.</p>" : listeJeunes.map((participant, indexParticipant) => {
             const du = Number(activite.montantJeune || 0);
             const paye = Number(participant.paye || 0);
             const solde = Math.max(0, du - paye);
@@ -756,6 +768,34 @@ function afficherActivitesObion() {
                   class="champPaiementActivite"
                 >
                 <p>Reste : ${solde.toLocaleString("fr-FR")} F CFA</p>
+              </div>
+            `;
+          }).join("")}
+        </details>
+
+        <details style="margin-top:8px;">
+          <summary>Chefs participants et paiements</summary>
+          ${listeChefs.length === 0 ? "<p>Aucun chef inscrit.</p>" : listeChefs.map((chef, indexChef) => {
+            const duChef = Number(activite.montantChef || 0);
+            const payeChef = Number(chef.paye || 0);
+            const soldeChef = Math.max(0, duChef - payeChef);
+
+            return `
+              <div style="border-top:1px solid #eee; padding:8px 0;">
+                <strong>${echapper(chef.nom)}</strong>
+                <p>${echapper(chef.fonction)} • ${echapper(chef.unite || "Groupe")}</p>
+                <p>À payer : ${duChef.toLocaleString("fr-FR")} F CFA</p>
+                <label>Montant payé par le chef (F CFA)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="${duChef}"
+                  value="${payeChef}"
+                  data-activite="${indexActivite}"
+                  data-chef="${indexChef}"
+                  class="champPaiementChefActivite"
+                >
+                <p>Reste : ${soldeChef.toLocaleString("fr-FR")} F CFA</p>
               </div>
             `;
           }).join("")}

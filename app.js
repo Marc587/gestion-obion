@@ -27,6 +27,10 @@ const defaultData = {
   settings: {
     cg_nom: "Chef de Groupe Obion",
     cg_tel: "",
+    logo_app: "logo-app.jpg",
+    logo_district: "logo-district.jpg",
+    logo_groupe: "logo.jpg",
+    cachet_actif: true,
     cot_j: 0,
     cot_c: 0,
     prog: {
@@ -49,6 +53,15 @@ let tempChecklistTasks = [];
 let currentWaBranche = "Toutes";
 let currentAutoTarget = null;
 let currentActiveTab = "dashboard";
+let isSavingCloud = false;
+let unsubscribeRealtime = null;
+
+function setSyncBadge(text, bgColor) {
+  const badge = document.getElementById("syncBadge");
+  if (!badge) return;
+  badge.textContent = text;
+  badge.style.background = bgColor || "rgba(255,255,255,0.14)";
+}
 
 function withTimeout(promise, ms = 3500) {
   return Promise.race([
@@ -100,17 +113,103 @@ function normalizeDb() {
   );
 }
 
+function applyAppAndBrandLogos() {
+  const appLogo = (db.settings && db.settings.logo_app) || "logo-app.jpg";
+  const grpLogo = (db.settings && db.settings.logo_groupe) || "logo.jpg";
+
+  const favLink = document.getElementById("favIconLink");
+  const appleLink = document.getElementById("appleIconLink");
+  if (favLink) favLink.href = appLogo;
+  if (appleLink) appleLink.href = appLogo;
+
+  ["loaderLogoImg", "loginLogoImg", "headerLogoImg"].forEach((id) => {
+    const img = document.getElementById(id);
+    if (img) {
+      img.style.display = "";
+      img.src = grpLogo;
+    }
+  });
+}
+
+function renderDocumentHeader(title, subtitle) {
+  const logoDistrict = (db.settings && db.settings.logo_district) || "logo-district.jpg";
+  const logoGroupe = (db.settings && db.settings.logo_groupe) || "logo.jpg";
+  return `
+    <div class="doc-header-logos">
+      <img src="${logoDistrict}" alt="Logo District" class="doc-logo" onerror="this.style.visibility='hidden'">
+      <div class="doc-header-center">
+        <h2>${title}</h2>
+        <p>${subtitle || "Groupe Scout OBION — St Bernard d'Adiopodoumé KM17"}</p>
+      </div>
+      <img src="${logoGroupe}" alt="Logo Groupe OBION" class="doc-logo" onerror="this.style.visibility='hidden'">
+    </div>
+  `;
+}
+
+function renderCachetCG(forceInclude = true) {
+  const activeSetting = db.settings ? db.settings.cachet_actif !== false : true;
+  if (!forceInclude || !activeSetting) return "";
+  const cgNom = (db.settings && db.settings.cg_nom) || "Chef de Groupe Obion";
+  const cgTel = (db.settings && db.settings.cg_tel) || "";
+  const todayFr = new Date().toLocaleDateString("fr-FR");
+  return `
+    <div class="cachet-cg">
+      <strong>Cachet Numérique — Groupe OBION</strong>
+      <small>Chef de Groupe : ${cgNom}</small>
+      ${cgTel ? `<small>Contact : ${cgTel}</small>` : ""}
+      <small>Validé le ${todayFr} • Adiopodoumé KM17</small>
+    </div>
+  `;
+}
+
 async function syncCloud(showAlertError = false) {
   normalizeDb();
+  applyAppAndBrandLogos();
   localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+  isSavingCloud = true;
+  setSyncBadge("⏳ Sauvegarde cloud...", "#e67e22");
   try {
     await withTimeout(docRefObion.set(db, { merge: true }), 4000);
+    setSyncBadge("☁️ Synchronisé en ligne", "#27ae60");
   } catch (err) {
     console.warn("Sauvegarde locale conservée, synchro cloud en attente :", err);
+    setSyncBadge("💾 Mode local (en attente)", "#c0392b");
     if (showAlertError) {
       alert("Enregistré sur cet appareil. Vérifie la connexion internet pour partager avec les autres chefs.");
     }
+  } finally {
+    isSavingCloud = false;
   }
+}
+
+function startRealtimeListener() {
+  if (unsubscribeRealtime) unsubscribeRealtime();
+  unsubscribeRealtime = docRefObion.onSnapshot(
+    (snap) => {
+      if (isSavingCloud) return;
+      if (snap && snap.exists) {
+        db = snap.data();
+        normalizeDb();
+        applyAppAndBrandLogos();
+        localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+        populateLoginSelect();
+        setSyncBadge("☁️ Synchronisé en ligne", "#27ae60");
+        if (currentUser) {
+          const refreshed = getUsersList().find((u) => u.id === currentUser.id);
+          if (refreshed) {
+            currentUser = refreshed;
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+            applyRolePermissions();
+          }
+          renderAll();
+        }
+      }
+    },
+    (err) => {
+      console.warn("Écoute temps réel indisponible :", err);
+      setSyncBadge("💾 Mode local actif", "#7f8c8d");
+    }
+  );
 }
 
 function isFinancierChef(chef) {
@@ -261,6 +360,14 @@ function getDaysUntil(dateStr) {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+}
+
+function getAbsenceCountForScout(scoutNom, branche) {
+  return db.presences.reduce((count, p) => {
+    const sameScope = p.branche === "Toutes" || !branche || p.branche === branche;
+    const abs = Array.isArray(p.absentsList) ? p.absentsList : [];
+    return count + (sameScope && abs.includes(scoutNom) ? 1 : 0);
+  }, 0);
 }
 
 function getDefaultChecklist(type) {
@@ -803,7 +910,7 @@ function autoBranch() {
 function resetScoutForm() {
   document.getElementById("s_id").value = "";
   document.getElementById("formTitleScout").textContent = "➕ Inscrire un jeune";
-  ["s_mat", "s_nom", "s_ddn", "s_branche", "s_sousunite", "s_role", "s_tel", "s_tel_perso", "s_parrain", "s_medical", "s_urgence"].forEach((id) => {
+  ["s_mat", "s_nom", "s_ddn", "s_branche", "s_sousunite", "s_role", "s_tel", "s_tel_perso", "s_parrain", "s_parrain_tel", "s_medical", "s_urgence"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
@@ -836,6 +943,7 @@ async function saveScout() {
     tel,
     tel_perso: document.getElementById("s_tel_perso").value.trim(),
     parrain: document.getElementById("s_parrain").value.trim(),
+    parrain_tel: document.getElementById("s_parrain_tel").value.trim(),
     sang: document.getElementById("s_sang").value,
     medical: document.getElementById("s_medical").value.trim(),
     urgence: document.getElementById("s_urgence").value.trim(),
@@ -870,6 +978,7 @@ function editScout(id) {
   document.getElementById("s_tel").value = s.tel || "";
   document.getElementById("s_tel_perso").value = s.tel_perso || "";
   document.getElementById("s_parrain").value = s.parrain || "";
+  document.getElementById("s_parrain_tel").value = s.parrain_tel || "";
   document.getElementById("s_sang").value = s.sang || "Inconnu";
   document.getElementById("s_medical").value = s.medical || "";
   document.getElementById("s_urgence").value = s.urgence || "";
@@ -887,7 +996,7 @@ async function deleteScout(id) {
 }
 
 function downloadCsvTemplate() {
-  const csv = "Matricule;Nom;DateNaissance;Branche;SousUnite;Role;ContactParent;ContactJeune;Parrain;Sang;Medical;Urgence\nOB-001;Kouassi Jean;2014-05-12;Troupe;Aigle;Chef de Patrouille;0700000000;;Koffi Paul;O+;Aucune;0500000000";
+  const csv = "Matricule;Nom;DateNaissance;Branche;SousUnite;Role;ContactParent;ContactJeune;Parrain;ContactParrain;Sang;Medical;Urgence\nOB-001;Kouassi Jean;2014-05-12;Troupe;Aigle;Chef de Patrouille;0700000000;;Koffi Paul;0100000000;O+;Aucune;0500000000";
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
@@ -916,9 +1025,10 @@ async function importScoutsCSV(event) {
       tel: cols[6] || "",
       tel_perso: cols[7] || "",
       parrain: cols[8] || "",
-      sang: cols[9] || "Inconnu",
-      medical: cols[10] || "",
-      urgence: cols[11] || "",
+      parrain_tel: cols[9] || "",
+      sang: cols[10] || "Inconnu",
+      medical: cols[11] || "",
+      urgence: cols[12] || "",
       cotisation: false,
       totem: "",
       etapesValidees: [],
@@ -928,6 +1038,79 @@ async function importScoutsCSV(event) {
   event.target.value = "";
   await syncCloud(true);
   renderAll();
+}
+
+function exportScoutsCSV() {
+  const header = "Matricule;Nom;Branche;SousUnite;ContactParent;Parrain;ContactParrain;Cotisation;Absences";
+  const rows = db.scouts.map((s) => {
+    const abs = getAbsenceCountForScout(s.nom, s.branche);
+    return [
+      s.mat || "",
+      s.nom || "",
+      s.branche || "",
+      s.sousunite || "",
+      s.tel || "",
+      s.parrain || "",
+      s.parrain_tel || "",
+      s.cotisation ? "A jour" : "Impaye",
+      abs
+    ]
+      .map((v) => String(v).replace(/;/g, ","))
+      .join(";");
+  });
+  const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], {
+    type: "text/csv;charset=utf-8;"
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "effectifs_obion.csv";
+  link.click();
+}
+
+function exportFinancesCSV() {
+  const header = "Date;Type;Categorie;Motif;Montant";
+  const rows = db.finances.map((f) =>
+    [
+      f.date || "",
+      f.type === "in" ? "Entree" : "Sortie",
+      f.cat || "",
+      String(f.motif || "").replace(/;/g, ","),
+      Number(f.montant || 0)
+    ].join(";")
+  );
+  const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], {
+    type: "text/csv;charset=utf-8;"
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "finances_obion.csv";
+  link.click();
+}
+
+function exportBackupJSON() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `sauvegarde_obion_${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+}
+
+async function importBackupJSON(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    db = parsed;
+    normalizeDb();
+    applyAppAndBrandLogos();
+    populateLoginSelect();
+    await syncCloud(true);
+    renderAll();
+    alert("Sauvegarde JSON restaurée avec succès.");
+  } catch (err) {
+    alert("Fichier JSON invalide.");
+  }
+  event.target.value = "";
 }
 
 function getEtapesBranche(branche) {
@@ -988,12 +1171,12 @@ function generateCommandes() {
   });
 
   document.getElementById("printArea").innerHTML = `
-    <h2>Commande d'Insignes — Groupe OBION</h2>
-    <p>St Bernard d'Adiopodoumé KM17</p>
+    ${renderDocumentHeader("Commande d'Insignes", "Suivi pédagogique des jeunes")}
     <table>
       <thead><tr><th>Matricule</th><th>Nom</th><th>Branche</th><th>Prochain insigne / étape</th></tr></thead>
       <tbody>${rows.join("") || "<tr><td colspan='4'>Aucun jeune enregistré.</td></tr>"}</tbody>
     </table>
+    ${renderCachetCG(true)}
   `;
   window.print();
 }
@@ -1013,21 +1196,24 @@ function openAutoConfig(targetType, targetId) {
     }
   }
   document.getElementById("ma_target_name").textContent = label;
+  document.getElementById("ma_include_cachet").checked =
+    db.settings ? db.settings.cachet_actif !== false : true;
   openM("modalAutoConfig");
 }
 
 function printAutoRun() {
   const customText = document.getElementById("ma_custom_text").value.trim();
+  const includeCachet = document.getElementById("ma_include_cachet").checked;
   const cgNom = db.settings.cg_nom || "Le Chef de Groupe";
   const cgTel = db.settings.cg_tel || "";
   document.getElementById("printArea").innerHTML = `
-    <h2>Autorisation Parentale — Groupe OBION</h2>
-    <p><strong>Lieu :</strong> Saint Bernard d'Adiopodoumé KM17</p>
+    ${renderDocumentHeader("Autorisation Parentale", "Saint Bernard d'Adiopodoumé KM17")}
     <p style="margin:20px 0; line-height:1.6;">
       Je soussigné(e), parent / tuteur légal, autorise le jeune concerné <strong>${customText}</strong>
     </p>
     <p><strong>Responsable du groupe :</strong> ${cgNom} ${cgTel ? "• Tél : " + cgTel : ""}</p>
-    <p style="margin-top:30px;">Signature du parent : ___________________________</p>
+    <p style="margin-top:24px;">Signature du parent : ___________________________</p>
+    ${renderCachetCG(includeCachet)}
   `;
   closeM("modalAutoConfig");
   window.print();
@@ -1245,9 +1431,11 @@ function openPresDetails(id) {
         const scout =
           db.scouts.find((s) => s.nom === nomAbsent && (p.branche === "Toutes" || s.branche === p.branche)) ||
           db.scouts.find((s) => s.nom === nomAbsent);
+        const totalAbs = getAbsenceCountForScout(nomAbsent, p.branche);
+        const absBadge = totalAbs >= 2 ? `<small style="color:#c0392b; font-weight:bold;">(${totalAbs} absences)</small>` : "";
 
         if (!scout || !scout.tel) {
-          return `<li style="margin-bottom:8px;">• ${nomAbsent} <small style="color:#888;">(Pas de n° parent)</small></li>`;
+          return `<li style="margin-bottom:8px;">• ${nomAbsent} ${absBadge} <small style="color:#888;">(Pas de n° parent)</small></li>`;
         }
 
         const msg = buildAbsentParentMessage(scout, p);
@@ -1256,7 +1444,7 @@ function openPresDetails(id) {
 
         return `
           <li style="margin-bottom:10px; padding-bottom:8px; border-bottom:1px dashed #eee;">
-            <div><strong>${scout.nom}</strong> <small>(${scout.tel})</small></div>
+            <div><strong>${scout.nom}</strong> <small>(${scout.tel})</small> ${absBadge}</div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
               <a href="${waUrl}" target="_blank" class="wa-btn">📱 WhatsApp</a>
               <a href="${smsUrl}" class="btn btn-secondary" style="padding:3px 8px; border-radius:12px; font-size:0.75rem;">✉️ SMS</a>
@@ -1282,10 +1470,11 @@ function printPresence() {
   const p = db.presences.find((item) => item.id === currentPresId);
   if (!p) return;
   document.getElementById("printArea").innerHTML = `
-    <h2>Fiche d'Appel — Groupe OBION</h2>
-    <p><strong>Activité :</strong> ${p.titre} | <strong>Branche :</strong> ${p.branche} | <strong>Date :</strong> ${p.date}</p>
-    <p><strong>Responsable :</strong> ${p.resp} | <strong>Présents :</strong> ${p.presents} / ${p.total}</p>
+    ${renderDocumentHeader("Fiche d'Appel", `${p.titre} • ${p.branche}`)}
+    <p><strong>Date :</strong> ${p.date} | <strong>Responsable :</strong> ${p.resp}</p>
+    <p><strong>Présents :</strong> ${p.presents} / ${p.total}</p>
     <p><strong>Absents :</strong> ${(p.absentsList || []).join(", ") || "Aucun"}</p>
+    ${renderCachetCG(true)}
   `;
   window.print();
 }
@@ -1470,12 +1659,13 @@ function printCaisse() {
     });
 
   document.getElementById("printArea").innerHTML = `
-    <h2>Livre de Caisse — Groupe OBION</h2>
+    ${renderDocumentHeader("Livre de Caisse", "Bilan financier du groupe")}
     <p>Entrées : ${document.getElementById("f_tot_in").textContent} | Sorties : ${document.getElementById("f_tot_out").textContent} | Solde : ${document.getElementById("f_solde").textContent}</p>
     <table>
       <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead>
       <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération.</td></tr>"}</tbody>
     </table>
+    ${renderCachetCG(true)}
   `;
   window.print();
 }
@@ -1483,8 +1673,13 @@ function printCaisse() {
 async function saveSettings() {
   db.settings.cg_nom = document.getElementById("cfg_cg_nom").value.trim() || "Chef de Groupe Obion";
   db.settings.cg_tel = document.getElementById("cfg_cg_tel").value.trim();
+  db.settings.logo_app = document.getElementById("cfg_logo_app").value.trim() || "logo-app.jpg";
+  db.settings.logo_district = document.getElementById("cfg_logo_district").value.trim() || "logo-district.jpg";
+  db.settings.logo_groupe = document.getElementById("cfg_logo_groupe").value.trim() || "logo.jpg";
+  db.settings.cachet_actif = Boolean(document.getElementById("cfg_cachet_actif").checked);
   db.settings.cot_j = Number(document.getElementById("cfg_cot_j").value || 0);
   db.settings.cot_c = Number(document.getElementById("cfg_cot_c").value || 0);
+  applyAppAndBrandLogos();
   await syncCloud(true);
   renderAll();
   alert("Paramètres du groupe enregistrés.");
@@ -1516,6 +1711,10 @@ function renderSettingsInputs() {
   if (!currentUser || !currentUser.isAdmin) return;
   document.getElementById("cfg_cg_nom").value = db.settings.cg_nom || "";
   document.getElementById("cfg_cg_tel").value = db.settings.cg_tel || "";
+  document.getElementById("cfg_logo_app").value = db.settings.logo_app || "logo-app.jpg";
+  document.getElementById("cfg_logo_district").value = db.settings.logo_district || "logo-district.jpg";
+  document.getElementById("cfg_logo_groupe").value = db.settings.logo_groupe || "logo.jpg";
+  document.getElementById("cfg_cachet_actif").checked = db.settings.cachet_actif !== false;
   document.getElementById("cfg_cot_j").value = db.settings.cot_j || 0;
   document.getElementById("cfg_cot_c").value = db.settings.cot_c || 0;
   document.getElementById("cfg_prog_oisillon").value = db.settings.prog.Oisillon || "";
@@ -1560,6 +1759,10 @@ function renderScouts() {
       const cotiStatus = s.cotisation
         ? `<span class="status-dot status-green"></span> Cotisation : À jour`
         : `<span class="status-dot status-red"></span> Cotisation : Impayé ${waBtn}`;
+      const absCount = getAbsenceCountForScout(s.nom, s.branche);
+      const parrainLine = s.parrain
+        ? `<p><strong>Parrain :</strong> ${s.parrain}${s.parrain_tel ? ` (${s.parrain_tel})` : ""}</p>`
+        : "";
 
       return `
         <div class="item-card ${branchClassMap[s.branche] || ""}">
@@ -1567,6 +1770,8 @@ function renderScouts() {
           <h3>${s.nom}</h3>
           <p><strong>Matricule :</strong> ${s.mat} | <strong>Unité :</strong> ${s.sousunite || "Non précisée"}</p>
           <p><strong>Parent :</strong> ${s.tel || "-"} | <strong>Sang :</strong> ${s.sang || "Inconnu"}</p>
+          ${parrainLine}
+          <p><strong>Absences enregistrées :</strong> ${absCount}</p>
           <p style="margin-top:6px;">${cotiStatus}</p>
           <div class="item-actions no-print">
             <button class="btn btn-edit" onclick="editScout('${s.id}')">✏️ Modifier</button>
@@ -1789,8 +1994,12 @@ function renderParrains() {
   const mapP = {};
   db.scouts.forEach((s) => {
     if (s.parrain && (currentUser.isAdmin || s.branche === currentUser.brancheAutorisee)) {
-      if (!mapP[s.parrain]) mapP[s.parrain] = [];
-      mapP[s.parrain].push(s);
+      if (!mapP[s.parrain]) {
+        mapP[s.parrain] = { tel: s.parrain_tel || "", scouts: [] };
+      } else if (!mapP[s.parrain].tel && s.parrain_tel) {
+        mapP[s.parrain].tel = s.parrain_tel;
+      }
+      mapP[s.parrain].scouts.push(s);
     }
   });
 
@@ -1802,10 +2011,15 @@ function renderParrains() {
 
   paList.innerHTML = keys
     .map((p) => {
-      const lis = mapP[p].map((s) => `<li>${s.nom} <small>(${s.branche})</small></li>`).join("");
+      const entry = mapP[p];
+      const lis = entry.scouts.map((s) => `<li>${s.nom} <small>(${s.branche})</small></li>`).join("");
+      const contactHtml = entry.tel
+        ? `<p><strong>Contact :</strong> <a href="tel:${entry.tel}">${entry.tel}</a> <a href="${getWaLink(entry.tel, `Bonjour ${p}, Groupe OBION — Saint Bernard d'Adiopodoumé.`)}" target="_blank" class="wa-btn">📱 WhatsApp</a></p>`
+        : `<p><small style="color:#888;">Contact non renseigné</small></p>`;
       return `
         <div class="item-card" style="border-left-color:#e67e22;">
           <h3 style="color:#e67e22;">🤝 ${p}</h3>
+          ${contactHtml}
           <p><strong>Filleul(s) :</strong></p>
           <ul style="margin-left:20px; font-size:0.9rem;">${lis}</ul>
         </div>
@@ -1830,6 +2044,7 @@ function renderAll() {
 }
 
 function finishInitUI() {
+  applyAppAndBrandLogos();
   populateLoginSelect();
   toggleProgCampFields();
   const loader = document.getElementById("loaderScreen");
@@ -1868,8 +2083,10 @@ async function initApp() {
     if (snap && snap.exists) {
       db = snap.data();
       normalizeDb();
+      applyAppAndBrandLogos();
       localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
       populateLoginSelect();
+      setSyncBadge("☁️ Synchronisé en ligne", "#27ae60");
       if (currentUser) {
         const refreshed = getUsersList().find((u) => u.id === currentUser.id);
         if (refreshed) {
@@ -1884,7 +2101,10 @@ async function initApp() {
     }
   } catch (err) {
     console.warn("Synchro cloud différée, mode local actif :", err);
+    setSyncBadge("💾 Mode local actif", "#7f8c8d");
   }
+
+  startRealtimeListener();
 }
 
 window.addEventListener("DOMContentLoaded", initApp);

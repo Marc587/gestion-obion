@@ -11,22 +11,30 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const firestoreDb = firebase.firestore();
+firestoreDb.settings({
+  experimentalForceLongPolling: true,
+  useFetchStreams: false
+});
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
 const BACKUP_KEY = "obion_erp_backup_v1";
 const SESSION_KEY = "obion_erp_session_v1";
+const BRANCHES = ["Oisillon", "Meute", "Troupe", "Chemin", "Route"];
 
 const defaultData = {
   scouts: [],
   chefs: [],
   camps: [],
-  programme: [],
+  activites: [],
   presences: [],
   finances: [],
+  dons: [],
   materiel: [],
+  auditLog: [],
   settings: {
     cg_nom: "Chef de Groupe Obion",
     cg_tel: "",
+    wave_url: "",
     logo_app: "logo-app.jpg",
     logo_district: "logo-district.jpg",
     logo_groupe: "logo.jpg",
@@ -36,8 +44,13 @@ const defaultData = {
     cot_j_groupe: 415,
     cot_cu: 2600,
     cot_cg: 3000,
-    cot_mens_j: 0,
+    cot_mens_j: 500,
     cot_mens_c: 0,
+    pins: {
+      cg: "1111",
+      financier: "2222",
+      cu: "3333"
+    },
     prog: {
       Oisillon: "Découverte, Petit pas, Aile déployée",
       Meute: "Patte tendre, 1re étoile, 2e étoile, 3e étoile",
@@ -48,2955 +61,1706 @@ const defaultData = {
   }
 };
 
-let db = JSON.parse(localStorage.getItem(BACKUP_KEY) || "null") || structuredClone(defaultData);
-let currentUser = null;
-let currentPedaScoutId = null;
-let currentPresId = null;
-let currentCampId = null;
-let currentProgChecklistId = null;
-let tempChecklistTasks = [];
-let currentWaBranche = "Toutes";
-let currentAutoTarget = null;
+function normalizeDb(raw) {
+  const base = structuredClone(defaultData);
+  if (!raw || typeof raw !== "object") return base;
+  return {
+    scouts: Array.isArray(raw.scouts) ? raw.scouts : [],
+    chefs: Array.isArray(raw.chefs) ? raw.chefs : [],
+    camps: Array.isArray(raw.camps) ? raw.camps : [],
+    activites: Array.isArray(raw.activites) ? raw.activites : [],
+    presences: Array.isArray(raw.presences) ? raw.presences : [],
+    finances: Array.isArray(raw.finances) ? raw.finances : [],
+    dons: Array.isArray(raw.dons) ? raw.dons : [],
+    materiel: Array.isArray(raw.materiel) ? raw.materiel : [],
+    auditLog: Array.isArray(raw.auditLog) ? raw.auditLog : [],
+    settings: {
+      ...base.settings,
+      ...(raw.settings || {}),
+      pins: {
+        ...base.settings.pins,
+        ...((raw.settings && raw.settings.pins) || {})
+      },
+      prog: {
+        ...base.settings.prog,
+        ...((raw.settings && raw.settings.prog) || {})
+      }
+    }
+  };
+}
+
+let db = normalizeDb(JSON.parse(localStorage.getItem(BACKUP_KEY) || "null"));
+let currentUser = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
 let currentActiveTab = "dashboard";
 let isSavingCloud = false;
 let unsubscribeRealtime = null;
+let quickAppelStates = {};
 
-function setSyncBadge(text, bgColor) {
-  const badge = document.getElementById("syncBadge");
-  if (!badge) return;
-  badge.textContent = text;
-  badge.style.background = bgColor || "rgba(255,255,255,0.14)";
+function uid(prefix = "id") {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function withTimeout(promise, ms = 3500) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Délai Firebase dépassé")), ms)
-    )
-  ]);
+function formatMoney(val) {
+  const n = Number(val || 0);
+  return `${n.toLocaleString("fr-FR")} FCFA`;
 }
 
-function fPrix(n) {
-  return Number(n || 0).toLocaleString("fr-FR") + " FCFA";
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
-function getWaLink(tel, msg) {
-  const digits = String(tel || "").replace(/\D/g, "");
-  const fullNumber = digits.startsWith("225") ? digits : (digits ? "225" + digits : "");
-  return "https://wa.me/" + fullNumber + "?text=" + encodeURIComponent(msg);
+function setSyncStatus(text, ok = true) {
+  const el = document.getElementById("syncStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.style.background = ok ? "rgba(22, 163, 74, 0.25)" : "rgba(220, 38, 38, 0.28)";
 }
 
-function getSmsLink(tel, msg) {
-  const digits = String(tel || "").replace(/\D/g, "");
-  return "sms:" + digits + "?body=" + encodeURIComponent(msg);
-}
+async function persistDb(auditAction = "", auditDetail = "") {
+  if (auditAction && currentUser) {
+    db.auditLog = Array.isArray(db.auditLog) ? db.auditLog : [];
+    db.auditLog.unshift({
+      id: uid("log"),
+      date: new Date().toLocaleString("fr-FR"),
+      auteur: `${currentUser.role.toUpperCase()}${currentUser.branche ? " (" + currentUser.branche + ")" : ""}`,
+      action: auditAction,
+      detail: auditDetail
+    });
+    db.auditLog = db.auditLog.slice(0, 120);
+  }
 
-function closeM(id) {
-  const modal = document.getElementById(id);
-  if (modal) modal.style.display = "none";
-}
-
-function openM(id) {
-  const modal = document.getElementById(id);
-  if (modal) modal.style.display = "flex";
-}
-
-function normalizeDb() {
-  db = Object.assign(structuredClone(defaultData), db || {});
-  db.scouts = Array.isArray(db.scouts) ? db.scouts : [];
-  db.chefs = Array.isArray(db.chefs) ? db.chefs : [];
-  db.camps = Array.isArray(db.camps) ? db.camps : [];
-  db.programme = Array.isArray(db.programme) ? db.programme : [];
-  db.presences = Array.isArray(db.presences) ? db.presences : [];
-  db.finances = Array.isArray(db.finances) ? db.finances : [];
-  db.materiel = Array.isArray(db.materiel) ? db.materiel : [];
-  db.settings = Object.assign(structuredClone(defaultData.settings), db.settings || {});
-  db.settings.cot_j_total = 2500;
-  db.settings.cot_j_ascci = 2085;
-  db.settings.cot_j_groupe = 415;
-  db.settings.prog = Object.assign(
-    structuredClone(defaultData.settings.prog),
-    db.settings.prog || {}
-  );
-}
-
-function applyAppAndBrandLogos() {
-  const appLogo = (db.settings && db.settings.logo_app) || "logo-app.jpg";
-  const grpLogo = (db.settings && db.settings.logo_groupe) || "logo.jpg";
-
-  const favLink = document.getElementById("favIconLink");
-  const appleLink = document.getElementById("appleIconLink");
-  if (favLink) favLink.href = appLogo;
-  if (appleLink) appleLink.href = appLogo;
-
-  ["loaderLogoImg", "loginLogoImg", "headerLogoImg"].forEach((id) => {
-    const img = document.getElementById(id);
-    if (img) {
-      img.style.display = "";
-      img.src = grpLogo;
-    }
-  });
-}
-
-function renderDocumentHeader(title, subtitle) {
-  const logoDistrict = (db.settings && db.settings.logo_district) || "logo-district.jpg";
-  const logoGroupe = (db.settings && db.settings.logo_groupe) || "logo.jpg";
-  return `
-    <div class="doc-header-logos">
-      <img src="${logoDistrict}" alt="Logo District" class="doc-logo" onerror="this.style.visibility='hidden'">
-      <div class="doc-header-center">
-        <h2>${title}</h2>
-        <p>${subtitle || "Groupe Scout OBION — St Bernard d'Adiopodoumé KM17"}</p>
-      </div>
-      <img src="${logoGroupe}" alt="Logo Groupe OBION" class="doc-logo" onerror="this.style.visibility='hidden'">
-    </div>
-  `;
-}
-
-function renderCachetCG(forceInclude = true) {
-  const activeSetting = db.settings ? db.settings.cachet_actif !== false : true;
-  if (!forceInclude || !activeSetting) return "";
-  const cgNom = (db.settings && db.settings.cg_nom) || "Chef de Groupe Obion";
-  const cgTel = (db.settings && db.settings.cg_tel) || "";
-  const todayFr = new Date().toLocaleDateString("fr-FR");
-  return `
-    <div class="cachet-cg">
-      <strong>Cachet Numérique — Groupe OBION</strong>
-      <small>Chef de Groupe : ${cgNom}</small>
-      ${cgTel ? `<small>Contact : ${cgTel}</small>` : ""}
-      <small>Validé le ${todayFr} • Adiopodoumé KM17</small>
-    </div>
-  `;
-}
-
-function findPrincipalCUForBranch(branche) {
-  if (!branche || branche === "Toutes") return null;
-  const titleByBranch = {
-    Oisillon: "Micou",
-    Meute: "Akela",
-    Troupe: "Chef de Troupe",
-    Chemin: "Safouin"
-  };
-  const expectedTitle = titleByBranch[branche];
-  return (
-    db.chefs.find(
-      (c) =>
-        (expectedTitle && c.titre === expectedTitle) ||
-        (String(c.fonction || "").toLowerCase().includes("cu") &&
-          String(c.titre || "").toLowerCase().includes(branche.toLowerCase()))
-    ) || null
-  );
-}
-
-function buildCotisationReminderMessage(scout) {
-  return `Bonjour chers parents,\n\n${scout.nom} est bien enregistré(e) dans l'effectif (${scout.branche} — Groupe OBION). À ce jour, la cotisation annuelle de 2 500 FCFA n'a pas encore été réglée.\n\nNous vous rappelons que le paiement effectif de cette cotisation est indispensable pour que ${scout.nom} puisse participer à nos activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise si vous avez une question. Fraternellement, la Maîtrise — Groupe OBION.`;
-}
-
-function buildMonthlyCotisationReminderMessage(memberName, contextLabel, mois, montant) {
-  const montantText = Number(montant || 0) > 0
-    ? ` d'un montant de ${fPrix(montant)}`
-    : "";
-  return `Bonjour chers parents,\n\n${memberName} est bien enregistré(e) dans l'effectif (${contextLabel} — Groupe OBION). À ce jour, la cotisation mensuelle du mois de ${mois}${montantText} n'a pas encore été réglée.\n\nNous vous rappelons que le paiement effectif des cotisations est indispensable pour que le jeune puisse participer à nos prochaines activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise en cas de question. Fraternellement, la Maîtrise — Groupe OBION.`;
-}
-
-function buildActivityParentMessage(titre, branche, datesTxt, lieu, montant) {
-  const fraisLine = Number(montant || 0) > 0
-    ? `\n\nLe montant à payer pour cette activité est de ${fPrix(montant)}.`
-    : "";
-  return `Bonjour chers parents,\n\nNous vous informons de l'activité « ${titre} » (${branche}) prévue ${datesTxt} à ${lieu}.${fraisLine}\n\nNous vous rappelons que le paiement effectif est indispensable pour que le jeune puisse participer à nos activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise. Fraternellement, la Maîtrise — Groupe OBION.`;
-}
-
-function buildAbsentParentMessage(scout, presence) {
-  const dateFr = presence && presence.date
-    ? new Date(presence.date).toLocaleDateString("fr-FR")
-    : "";
-  const titre = (presence && presence.titre) || "l'activité scoute";
-  const branche = (presence && presence.branche) || (scout && scout.branche) || "";
-  return `Bonjour chers parents,\n\nNous avons constaté l'absence de ${scout.nom} lors de « ${titre} » (${branche})${dateFr ? " du " + dateFr : ""}.\n\nLa régularité compte beaucoup dans la vie de l'unité, et nous vous rappelons que la participation aux activités suppose le respect de nos règles et le paiement effectif des cotisations.\n\nMerci de nous tenir informés si besoin. Fraternellement, la Maîtrise — Groupe OBION.`;
-}
-
-async function syncCloud(showAlertError = false) {
-  normalizeDb();
-  applyAppAndBrandLogos();
+  db = normalizeDb(db);
   localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+  renderAllViews();
+
+  if (isSavingCloud) return;
   isSavingCloud = true;
-  setSyncBadge("⏳ Sauvegarde cloud...", "#e67e22");
+  setSyncStatus("☁️ Synchronisation...", true);
+
   try {
-    await withTimeout(docRefObion.set(db, { merge: true }), 4000);
-    setSyncBadge("☁️ Synchronisé en ligne", "#27ae60");
+    await docRefObion.set(db, { merge: true });
+    setSyncStatus("☁️ Synchronisé", true);
   } catch (err) {
-    console.warn("Sauvegarde locale conservée, synchro cloud en attente :", err);
-    setSyncBadge("💾 Mode local (en attente)", "#c0392b");
-    if (showAlertError) {
-      alert("Enregistré sur cet appareil. Vérifie la connexion internet pour partager avec les autres chefs.");
-    }
+    console.error("Erreur Firestore set:", err);
+    setSyncStatus("⚠️ Mode local (hors ligne)", false);
   } finally {
     isSavingCloud = false;
   }
 }
 
-function startRealtimeListener() {
-  if (unsubscribeRealtime) unsubscribeRealtime();
+function startRealtimeSync() {
+  if (typeof unsubscribeRealtime === "function") {
+    unsubscribeRealtime();
+  }
+  setSyncStatus("⏳ Connexion cloud...", true);
   unsubscribeRealtime = docRefObion.onSnapshot(
     (snap) => {
-      if (isSavingCloud) return;
-      if (snap && snap.exists) {
-        db = snap.data();
-        normalizeDb();
-        applyAppAndBrandLogos();
+      if (snap.exists && !isSavingCloud) {
+        db = normalizeDb(snap.data());
         localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
-        populateLoginSelect();
-        setSyncBadge("☁️ Synchronisé en ligne", "#27ae60");
-        if (currentUser) {
-          const refreshed = getUsersList().find((u) => u.id === currentUser.id);
-          if (refreshed) {
-            currentUser = refreshed;
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-            applyRolePermissions();
-          }
-          renderAll();
-        }
+        if (currentUser) renderAllViews();
       }
+      setSyncStatus("☁️ Synchronisé", true);
     },
     (err) => {
-      console.warn("Écoute temps réel indisponible :", err);
-      setSyncBadge("💾 Mode local actif", "#7f8c8d");
+      console.error("Erreur onSnapshot:", err);
+      setSyncStatus("⚠️ Repli local actif", false);
     }
   );
 }
 
-function isChefTresorier(chef) {
-  if (!chef) return false;
-  if (chef.estTresorier) return true;
-  const text = `${chef.titre || ""} ${chef.fonction || ""}`.toLowerCase();
-  return text.includes("financier") || text.includes("trésorier") || text.includes("tresorier");
+/* AUTHENTIFICATION & RÔLES */
+function toggleLoginBranch() {
+  const role = document.getElementById("loginRole").value;
+  document.getElementById("loginBranchGroup").style.display = role === "cu" ? "block" : "none";
 }
 
-function isChefAdjoint(chef) {
-  if (!chef) return false;
-  const text = `${chef.titre || ""} ${chef.fonction || ""}`.toLowerCase();
-  return text.includes("adjoint");
-}
+function handleLogin(e) {
+  e.preventDefault();
+  const role = document.getElementById("loginRole").value;
+  const branche = role === "cu" ? document.getElementById("loginBranch").value : null;
+  const pin = document.getElementById("loginPin").value.trim();
+  const expectedPin = (db.settings.pins && db.settings.pins[role]) || "1111";
 
-function getUsersList() {
-  const list = [
-    {
-      id: "cg_default",
-      nom: "Chef de Groupe (CG)",
-      titre: "Groupe et ressources adultes",
-      fonction: "Chef de Groupe",
-      pin: "1234",
-      isCG: true,
-      isAdjoint: false,
-      isFinancier: true,
-      hasOverview: true,
-      canFullAdmin: true,
-      brancheAutorisee: "Toutes"
-    }
-  ];
-
-  db.chefs.forEach((chef) => {
-    const adjoint = isChefAdjoint(chef);
-    const tresorier = isChefTresorier(chef);
-    const cgRole =
-      !adjoint &&
-      (chef.titre === "Groupe et ressources adultes" ||
-        chef.fonction === "Chef de Groupe");
-    const coordinateur = chef.titre === "Coordinateur" || chef.fonction === "Membre du Comité";
-
-    const brancheMap = {
-      Micou: "Oisillon",
-      Akela: "Meute",
-      "Chef de Troupe": "Troupe",
-      Safouin: "Chemin"
-    };
-
-    const canFullAdmin = cgRole || coordinateur;
-    const hasOverview = canFullAdmin || adjoint;
-    const isFinancier = tresorier || cgRole;
-
-    list.push({
-      id: chef.id,
-      nom: chef.nom,
-      titre: chef.titre,
-      fonction: chef.fonction,
-      pin: String(chef.pin || "1234"),
-      isCG: cgRole,
-      isAdjoint: adjoint,
-      isFinancier: isFinancier,
-      hasOverview: hasOverview,
-      canFullAdmin: canFullAdmin,
-      brancheAutorisee: hasOverview ? "Toutes" : (brancheMap[chef.titre] || "Toutes")
-    });
-  });
-
-  return list;
-}
-
-function canViewTab(tabName) {
-  if (!currentUser) return false;
-  if (currentUser.canFullAdmin) return true;
-  if (currentUser.isAdjoint) {
-    return ["dashboard", "programme", "effectifs", "pedagogie", "camps", "presences", "materiel", "parrains", "maitrise"].includes(tabName);
+  if (pin !== expectedPin) {
+    alert("Code PIN incorrect pour ce rôle.");
+    return;
   }
-  if (currentUser.isFinancier) {
-    return ["dashboard", "programme", "effectifs", "camps", "maitrise", "finances"].includes(tabName);
-  }
-  return ["dashboard", "programme", "effectifs", "pedagogie", "camps", "presences", "materiel", "parrains"].includes(tabName);
+
+  currentUser = { role, branche, loginAt: Date.now() };
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+  showAppShell();
 }
 
-function canManageFinancesAndMatricules() {
-  return Boolean(currentUser && (currentUser.isFinancier || currentUser.canFullAdmin));
-}
-
-function canManageFullAdmin() {
-  return Boolean(currentUser && currentUser.canFullAdmin);
-}
-
-function populateLoginSelect() {
-  const select = document.getElementById("login_user");
-  if (!select) return;
-  const users = getUsersList();
-  select.innerHTML = users
-    .map((u) => {
-      const tags = [];
-      if (u.isAdjoint) tags.push("Adjoint");
-      if (u.isFinancier) tags.push("Trésorier / Financier");
-      const suffix = tags.length > 0 ? ` [${tags.join(" • ")}]` : "";
-      return `<option value="${u.id}">${u.nom} — ${u.titre}${suffix}</option>`;
-    })
-    .join("");
-}
-
-function login() {
-  const userId = document.getElementById("login_user").value;
-  const pin = document.getElementById("login_pin").value.trim();
-  const errorEl = document.getElementById("login_error");
-  const user = getUsersList().find((u) => u.id === userId);
-
-  if (user && user.pin === pin) {
-    currentUser = user;
-    currentActiveTab = "dashboard";
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    errorEl.style.display = "none";
-    document.getElementById("loginScreen").style.display = "none";
-    document.getElementById("appContainer").style.display = "block";
-    applyRolePermissions();
-    nav("dashboard");
-  } else {
-    errorEl.style.display = "block";
-  }
-}
-
-function logout() {
+function handleLogout() {
   currentUser = null;
   sessionStorage.removeItem(SESSION_KEY);
-  document.getElementById("login_pin").value = "";
-  document.getElementById("appContainer").style.display = "none";
+  document.getElementById("appShell").style.display = "none";
   document.getElementById("loginScreen").style.display = "flex";
+  document.getElementById("loginPin").value = "";
 }
 
-function applyRolePermissions() {
-  if (!currentUser) return;
-  const roleBadges = [];
-  if (currentUser.canFullAdmin) roleBadges.push("Direction");
-  if (currentUser.isAdjoint) roleBadges.push("Adjoint - Vision globale");
-  if (currentUser.isFinancier) roleBadges.push("Trésorier / Financier");
-  const badgeText = roleBadges.length > 0 ? ` • ${roleBadges.join(" / ")}` : "";
+function isCG() { return currentUser && currentUser.role === "cg"; }
+function isFinancier() { return currentUser && currentUser.role === "financier"; }
+function isCU() { return currentUser && currentUser.role === "cu"; }
+function canManageFinances() { return isCG() || isFinancier(); }
+function canManageStructure() { return isCG(); }
 
-  document.getElementById("current_user_display").textContent =
-    `${currentUser.nom} (${currentUser.titre})${badgeText}`;
-  document.getElementById("p_resp").value = currentUser.nom;
-
-  ["dashboard", "programme", "effectifs", "pedagogie", "camps", "presences", "materiel", "parrains", "maitrise", "finances", "parametres"].forEach(
-    (tab) => {
-      const btn = document.getElementById("tab_" + tab);
-      if (btn) {
-        if (canViewTab(tab)) btn.classList.remove("hidden");
-        else btn.classList.add("hidden");
-      }
-    }
-  );
-
-  const csvCard = document.getElementById("csvEffectifsCard");
-  if (csvCard) {
-    if (canManageFullAdmin()) csvCard.classList.remove("hidden");
-    else csvCard.classList.add("hidden");
+function getScopedScouts() {
+  if (isCU() && currentUser.branche) {
+    return db.scouts.filter((s) => s.branche === currentUser.branche);
   }
-
-  const maitriseForm = document.getElementById("maitriseFormCard");
-  if (maitriseForm) {
-    if (canManageFullAdmin()) maitriseForm.classList.remove("hidden");
-    else maitriseForm.classList.add("hidden");
-  }
-
-  const btnCmd = document.getElementById("btnCmdInsignes");
-  if (btnCmd) {
-    if (canManageFullAdmin() || currentUser.isAdjoint) btnCmd.classList.remove("hidden");
-    else btnCmd.classList.add("hidden");
-  }
-
-  if (!currentUser.hasOverview && currentUser.brancheAutorisee !== "Toutes") {
-    ["filterScout", "filterPeda", "camp_branche", "p_branche", "prog_branche", "filterProgBranche"].forEach(
-      (id) => {
-        const sel = document.getElementById(id);
-        if (sel) sel.value = currentUser.brancheAutorisee;
-      }
-    );
-  }
+  return db.scouts;
 }
 
-function nav(sectionName) {
-  if (!currentUser) return;
-  if (!canViewTab(sectionName)) {
-    alert("Accès non autorisé pour ce rôle.");
-    return;
+function getScopedChefs() {
+  if (isCU() && currentUser.branche) {
+    return db.chefs.filter((c) => c.branche === currentUser.branche);
   }
-
-  currentActiveTab = sectionName;
-  document.querySelectorAll(".section").forEach((sec) => sec.classList.add("hidden"));
-  const targetSec = document.getElementById("sec-" + sectionName);
-  if (targetSec) targetSec.classList.remove("hidden");
-
-  document.querySelectorAll(".tab-btn").forEach((btn) => btn.classList.remove("active"));
-  const activeBtn = document.getElementById("tab_" + sectionName);
-  if (activeBtn) activeBtn.classList.add("active");
-
-  renderAll();
+  return db.chefs;
 }
 
-function getDaysUntil(dateStr) {
-  if (!dateStr) return null;
-  const target = new Date(dateStr + "T00:00:00");
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
-}
-
-function getAbsenceCountForScout(scoutNom, branche) {
-  return db.presences.reduce((count, p) => {
-    const sameScope = p.branche === "Toutes" || !branche || p.branche === branche;
-    const abs = Array.isArray(p.absentsList) ? p.absentsList : [];
-    return count + (sameScope && abs.includes(scoutNom) ? 1 : 0);
-  }, 0);
-}
-
-function getDefaultChecklist(type) {
-  const base = [
-    { label: "Valider le programme / fiche technique", done: false },
-    { label: "Préparer les frais / montant à payer", done: false },
-    { label: "Informer les parents & recueillir autorisations", done: false },
-    { label: "Vérifier l'intendance / matériel", done: false }
-  ];
-  if (type === "Camp / Week-end") {
-    base.push({ label: "Confirmer l'hébergement & transport", done: false });
+function getScopedCamps() {
+  if (isCU() && currentUser.branche) {
+    return db.camps.filter((c) => c.type === "branche" && c.branche === currentUser.branche);
   }
-  return base;
+  return db.camps;
 }
 
-function toggleProgCampFields() {
-  const typeVal = document.getElementById("prog_type").value;
-  const fraisGroup = document.getElementById("prog_frais_group");
-  if (fraisGroup) {
-    fraisGroup.style.display = typeVal === "Camp / Week-end" ? "flex" : "none";
+function getScopedActivites() {
+  if (isCU()) {
+    return db.activites.filter((a) => a.cible === "cu_only" || a.cible === "tous_chefs");
   }
+  return db.activites;
 }
 
-function resetProgrammeForm() {
-  document.getElementById("prog_id").value = "";
-  document.getElementById("formTitleProg").textContent = "🗓️ Ajouter une activité au programme annuel";
-  document.getElementById("prog_titre").value = "";
-  document.getElementById("prog_type").value = "Réunion d'unité";
-  document.getElementById("prog_debut").value = "";
-  document.getElementById("prog_fin").value = "";
-  document.getElementById("prog_lieu").value = "";
-  document.getElementById("prog_branche").value =
-    currentUser && !currentUser.hasOverview && currentUser.brancheAutorisee !== "Toutes"
-      ? currentUser.brancheAutorisee
-      : "Toutes";
-  document.getElementById("prog_statut").value = "À préparer";
-  document.getElementById("prog_frais").value = "0";
-  document.getElementById("prog_notes").value = "";
-  toggleProgCampFields();
-}
+function showAppShell() {
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("appShell").style.display = "block";
 
-async function saveProgrammeItem() {
-  const id = document.getElementById("prog_id").value;
-  const titre = document.getElementById("prog_titre").value.trim();
-  const type = document.getElementById("prog_type").value;
-  const debut = document.getElementById("prog_debut").value;
-  const fin = document.getElementById("prog_fin").value || debut;
-  const lieu = document.getElementById("prog_lieu").value.trim() || "Saint Bernard d'Adiopodoumé";
-  const branche = currentUser.hasOverview
-    ? document.getElementById("prog_branche").value
-    : currentUser.brancheAutorisee;
-  const statut = document.getElementById("prog_statut").value;
-  const frais = Number(document.getElementById("prog_frais").value || 0);
-  const notes = document.getElementById("prog_notes").value.trim();
-
-  if (!titre || !debut) {
-    alert("Merci d'indiquer au moins le titre et la date de début de l'activité.");
-    return;
-  }
-
-  const existing = id ? db.programme.find((p) => p.id === id) : null;
-  let linkedCampId = existing ? existing.linkedCampId : null;
-
-  if (type === "Camp / Week-end") {
-    if (linkedCampId && db.camps.some((c) => c.id === linkedCampId)) {
-      db.camps = db.camps.map((c) =>
-        c.id === linkedCampId
-          ? { ...c, titre, lieu, debut, fin, branche, frais }
-          : c
-      );
-    } else {
-      linkedCampId = "camp_" + Date.now();
-      db.camps.push({
-        id: linkedCampId,
-        titre,
-        lieu,
-        debut,
-        fin,
-        branche,
-        frais,
-        participants: []
-      });
-    }
-  } else if (linkedCampId) {
-    db.camps = db.camps.filter((c) => c.id !== linkedCampId);
-    linkedCampId = null;
-  }
-
-  const itemData = {
-    id: id || "prog_" + Date.now(),
-    titre,
-    type,
-    debut,
-    fin,
-    lieu,
-    branche,
-    statut,
-    frais,
-    notes,
-    linkedCampId,
-    checklist: existing && Array.isArray(existing.checklist) && existing.checklist.length > 0
-      ? existing.checklist
-      : getDefaultChecklist(type)
+  const roleLabels = {
+    cg: "Chef de Groupe",
+    financier: "Financier / Trésorier",
+    cu: "Chef d'Unité"
   };
 
-  if (existing) {
-    db.programme = db.programme.map((p) => (p.id === id ? itemData : p));
+  document.getElementById("activeUserLabel").textContent =
+    currentUser.role === "cg" ? (db.settings.cg_nom || "Chef de Groupe") : roleLabels[currentUser.role];
+
+  const roleBadge = document.getElementById("activeRoleBadge");
+  roleBadge.textContent = roleLabels[currentUser.role];
+
+  const scopeBadge = document.getElementById("activeScopeBadge");
+  if (isCU()) {
+    scopeBadge.textContent = `Branche : ${currentUser.branche}`;
+    scopeBadge.className = "badge badge-amber";
   } else {
-    db.programme.push(itemData);
+    scopeBadge.textContent = "Périmètre : Groupe OBION";
+    scopeBadge.className = "badge badge-blue";
   }
 
-  resetProgrammeForm();
-  await syncCloud(true);
-  renderAll();
+  applyRoleVisibility();
+  initDefaultControls();
+  renderAllViews();
 }
 
-function editProgrammeItem(id) {
-  const item = db.programme.find((p) => p.id === id);
-  if (!item) return;
-  document.getElementById("prog_id").value = item.id;
-  document.getElementById("formTitleProg").textContent = "✏️ Modifier : " + item.titre;
-  document.getElementById("prog_titre").value = item.titre || "";
-  document.getElementById("prog_type").value = item.type || "Réunion d'unité";
-  document.getElementById("prog_debut").value = item.debut || "";
-  document.getElementById("prog_fin").value = item.fin || "";
-  document.getElementById("prog_lieu").value = item.lieu || "";
-  document.getElementById("prog_branche").value = item.branche || "Toutes";
-  document.getElementById("prog_statut").value = item.statut || "À préparer";
-  document.getElementById("prog_frais").value = item.frais || 0;
-  document.getElementById("prog_notes").value = item.notes || "";
-  toggleProgCampFields();
-  nav("programme");
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
+function applyRoleVisibility() {
+  const cuMode = isCU();
+  document.querySelector('[data-tab="finances"]').style.display = cuMode ? "none" : "inline-flex";
+  document.querySelector('[data-tab="parametres"]').style.display = isCG() ? "inline-flex" : "none";
+  document.getElementById("btnAddChef").style.display = canManageStructure() ? "inline-flex" : "none";
+  document.getElementById("btnAddActivite").style.display = canManageStructure() ? "inline-flex" : "none";
+  document.getElementById("btnAddCamp").style.display = canManageStructure() ? "inline-flex" : "none";
+  document.getElementById("btnQuickReceiptDash").style.display = canManageFinances() ? "inline-flex" : "none";
 
-async function deleteProgrammeItem(id) {
-  const item = db.programme.find((p) => p.id === id);
-  if (!item) return;
-  if (!confirm("Supprimer cette activité du programme annuel ?")) return;
-  if (item.linkedCampId) {
-    db.camps = db.camps.filter((c) => c.id !== item.linkedCampId);
+  if (cuMode && currentActiveTab === "finances") {
+    currentActiveTab = "dashboard";
   }
-  db.programme = db.programme.filter((p) => p.id !== id);
-  await syncCloud(true);
-  renderAll();
 }
 
-function printProgramme() {
-  const filterBranche = currentUser && currentUser.hasOverview
-    ? (document.getElementById("filterProgBranche")?.value || "Toutes")
-    : (currentUser ? currentUser.brancheAutorisee : "Toutes");
-  const filterStatut = document.getElementById("filterProgStatut")?.value || "Tous";
+function initDefaultControls() {
+  const today = new Date().toISOString().slice(0, 10);
+  const month = new Date().toISOString().slice(0, 7);
 
-  const items = [...db.programme]
-    .filter((p) => {
-      const okB = filterBranche === "Toutes" || p.branche === "Toutes" || p.branche === filterBranche;
-      const okS = filterStatut === "Tous" || p.statut === filterStatut;
-      return okB && okS;
-    })
-    .sort((a, b) => String(a.debut || "").localeCompare(String(b.debut || "")));
+  const dateInput = document.getElementById("appelDateInput");
+  if (dateInput && !dateInput.value) dateInput.value = today;
 
-  const rows = items.map((p) => {
-    const periode = p.fin && p.fin !== p.debut ? `${p.debut} au ${p.fin}` : (p.debut || "-");
+  const monthPicker = document.getElementById("financeMonthPicker");
+  if (monthPicker && !monthPicker.value) monthPicker.value = month;
+
+  const appelBranche = document.getElementById("appelBrancheSelect");
+  const filterBranche = document.getElementById("filterScoutBranche");
+  const pedagoBranche = document.getElementById("pedagoBrancheSelect");
+
+  if (isCU() && currentUser.branche) {
+    appelBranche.value = currentUser.branche;
+    appelBranche.disabled = true;
+    filterBranche.value = currentUser.branche;
+    filterBranche.disabled = true;
+    pedagoBranche.value = currentUser.branche;
+    pedagoBranche.disabled = true;
+  } else {
+    appelBranche.disabled = false;
+    filterBranche.disabled = false;
+    pedagoBranche.disabled = false;
+  }
+
+  applyAnnonceTemplate();
+}
+
+function switchTab(tabName) {
+  if (isCU() && (tabName === "finances" || tabName === "parametres")) {
+    tabName = "dashboard";
+  }
+  currentActiveTab = tabName;
+  document.querySelectorAll(".nav-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === `tab-${tabName}`);
+  });
+  renderAllViews();
+}
+
+function renderAllViews() {
+  if (!currentUser) return;
+  applyRoleVisibility();
+  renderDashboard();
+  renderEffectifs();
+  renderQuickAppel();
+  renderPresencesHistory();
+  renderActivites();
+  renderCamps();
+  renderPedagogie();
+  renderMateriel();
+  if (canManageFinances()) {
+    renderFinances();
+  }
+  renderAnnonceRecipients();
+  if (isCG()) {
+    renderSettingsInputs();
+  }
+}
+
+/* STATISTIQUES SEXE & POURCENTAGES */
+function computeGenderStats(list) {
+  const total = list.length;
+  const garcons = list.filter((x) => x.sexe === "Garçon").length;
+  const filles = list.filter((x) => x.sexe === "Fille").length;
+  const pctG = total ? Math.round((garcons / total) * 100) : 0;
+  const pctF = total ? Math.round((filles / total) * 100) : 0;
+  return { total, garcons, filles, pctG, pctF };
+}
+
+/* 1. TABLEAU DE BORD & ALERTES */
+function renderDashboard() {
+  const scouts = getScopedScouts();
+  const chefs = getScopedChefs();
+  const sStats = computeGenderStats(scouts);
+  const cStats = computeGenderStats(chefs);
+
+  const kpiGrid = document.getElementById("dashKpiGrid");
+  const solde = db.finances.reduce((acc, f) => {
+    const amt = Number(f.montant || 0);
+    return acc + (f.type === "entree" ? amt : -amt);
+  }, 0);
+
+  kpiGrid.innerHTML = `
+    <div class="kpi-box">
+      <div class="kpi-label">Total Jeunes (${isCU() ? currentUser.branche : "Groupe"})</div>
+      <div class="kpi-value">${sStats.total}</div>
+      <div class="kpi-sub">Garçons : ${sStats.garcons} (${sStats.pctG}%) · Filles : ${sStats.filles} (${sStats.pctF}%)</div>
+    </div>
+    <div class="kpi-box">
+      <div class="kpi-label">Maîtrise / Chefs</div>
+      <div class="kpi-value">${cStats.total}</div>
+      <div class="kpi-sub">H : ${cStats.garcons} (${cStats.pctG}%) · F : ${cStats.filles} (${cStats.pctF}%)</div>
+    </div>
+    <div class="kpi-box">
+      <div class="kpi-label">Activités visibles</div>
+      <div class="kpi-value">${getScopedActivites().length}</div>
+      <div class="kpi-sub">Camps visibles : ${getScopedCamps().length}</div>
+    </div>
+    ${canManageFinances() ? `
+    <div class="kpi-box">
+      <div class="kpi-label">Solde Trésorerie</div>
+      <div class="kpi-value">${formatMoney(solde)}</div>
+      <div class="kpi-sub">Dons enregistrés : ${db.dons.length}</div>
+    </div>` : `
+    <div class="kpi-box">
+      <div class="kpi-label">Sans tenue scoute</div>
+      <div class="kpi-value">${scouts.filter((s) => !s.tenue_complete).length}</div>
+      <div class="kpi-sub">À signaler aux parents</div>
+    </div>`}
+  `;
+
+  const tbody = document.getElementById("dashGenderTableBody");
+  const branchesToShow = isCU() && currentUser.branche ? [currentUser.branche] : BRANCHES;
+  tbody.innerHTML = branchesToShow.map((br) => {
+    const bScouts = scouts.filter((s) => s.branche === br);
+    const bChefs = chefs.filter((c) => c.branche === br);
+    const st = computeGenderStats(bScouts);
     return `
       <tr>
-        <td>${periode}</td>
-        <td><strong>${p.titre}</strong><br><small>${p.type}</small></td>
-        <td>${p.branche}</td>
-        <td>${p.lieu || "-"}</td>
-        <td>${p.statut}</td>
+        <td><strong>${escapeHtml(br)}</strong></td>
+        <td>${st.total}</td>
+        <td>${st.garcons} (${st.pctG}%)</td>
+        <td>${st.filles} (${st.pctF}%)</td>
+        <td>${bChefs.length}</td>
       </tr>
     `;
-  });
+  }).join("");
 
-  document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Programme d'Activités Annuel", `Branche : ${filterBranche} • Statut : ${filterStatut}`)}
-    <table>
-      <thead><tr><th>Date(s)</th><th>Activité</th><th>Branche</th><th>Lieu</th><th>Statut</th></tr></thead>
-      <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune activité planifiée.</td></tr>"}</tbody>
-    </table>
-    ${renderCachetCG(true)}
+  const alertsEl = document.getElementById("dashAlertsContainer");
+  const alerts = [];
+  const noPhone = scouts.filter((s) => !s.parent_tel || !s.parent_tel.trim());
+  const noTenue = scouts.filter((s) => !s.tenue_complete);
+  const paidNoMatricule = scouts.filter((s) => s.cotisation_annuelle === "paye" && (!s.matricule || !s.matricule.trim()));
+
+  if (noPhone.length) {
+    alerts.push(`<div class="alert-item"><span>📱 <strong>${noPhone.length}</strong> jeune(s) sans numéro de téléphone parent.</span><button class="btn btn-sm btn-secondary" onclick="switchTab('effectifs')">Compléter</button></div>`);
+  }
+  if (noTenue.length) {
+    alerts.push(`<div class="alert-item info"><span>⚜️ <strong>${noTenue.length}</strong> jeune(s) sans tenue scoute complète.</span><button class="btn btn-sm btn-info" onclick="switchTab('annonces')">Prévenir parent</button></div>`);
+  }
+  if (canManageFinances() && paidNoMatricule.length) {
+    alerts.push(`<div class="alert-item danger"><span>🆔 <strong>${paidNoMatricule.length}</strong> jeune(s) à jour de cotisation annuelle sans matricule enregistré.</span><button class="btn btn-sm btn-danger" onclick="switchTab('finances')">Vérifier</button></div>`);
+  }
+
+  alertsEl.innerHTML = alerts.length
+    ? alerts.join("")
+    : `<p style="color:var(--muted); font-size:0.88rem;">Aucune alerte bloquante pour le moment.</p>`;
+}
+
+/* 2. EFFECTIFS (JEUNES & CHEFS) */
+function renderEffectifs() {
+  const filterBr = document.getElementById("filterScoutBranche").value;
+  const query = (document.getElementById("searchScoutInput").value || "").trim().toLowerCase();
+
+  let list = getScopedScouts();
+  if (filterBr && filterBr !== "Toutes") {
+    list = list.filter((s) => s.branche === filterBr);
+  }
+  if (query) {
+    list = list.filter((s) =>
+      `${s.nom} ${s.prenom} ${s.matricule || ""} ${s.parent_nom || ""}`.toLowerCase().includes(query)
+    );
+  }
+
+  const st = computeGenderStats(list);
+  document.getElementById("scoutStatsBar").innerHTML = `
+    <div class="kpi-box"><div class="kpi-label">Effectif filtré</div><div class="kpi-value">${st.total}</div></div>
+    <div class="kpi-box"><div class="kpi-label">Garçons</div><div class="kpi-value">${st.garcons} <small>(${st.pctG}%)</small></div></div>
+    <div class="kpi-box"><div class="kpi-label">Filles</div><div class="kpi-value">${st.filles} <small>(${st.pctF}%)</small></div></div>
+    <div class="kpi-box"><div class="kpi-label">Avec matricule</div><div class="kpi-value">${list.filter((x) => x.matricule).length}</div></div>
   `;
-  window.print();
-}
 
-function openProgChecklist(id) {
-  const item = db.programme.find((p) => p.id === id);
-  if (!item) return;
-  currentProgChecklistId = id;
-  tempChecklistTasks = (Array.isArray(item.checklist) && item.checklist.length > 0
-    ? item.checklist
-    : getDefaultChecklist(item.type)
-  ).map((t) => ({ ...t }));
-
-  document.getElementById("mpc_titre").textContent = `Suivi préparation : ${item.titre}`;
-  document.getElementById("mpc_meta").textContent =
-    `${item.type} • ${item.branche} • Date : ${item.debut}`;
-  document.getElementById("mpc_new_task").value = "";
-  renderChecklistModalRows();
-  openM("modalProgChecklist");
-}
-
-function renderChecklistModalRows() {
-  const box = document.getElementById("mpc_tasks");
-  if (!box) return;
-  box.innerHTML = tempChecklistTasks.length === 0
-    ? "<p>Aucune tâche dans cette liste.</p>"
-    : tempChecklistTasks
-        .map((t, idx) => `
-          <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px; background:white; border-radius:6px; border:1px solid #eee;">
-            <span style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTempTask(${idx})">
-              <span style="${t.done ? "text-decoration:line-through; color:#888;" : ""}">${t.label}</span>
-            </span>
-            <button type="button" class="btn btn-danger" style="padding:3px 7px; font-size:0.75rem;" onclick="removeTempTask(${idx})">&times;</button>
-          </label>
-        `)
-        .join("");
-}
-
-function toggleTempTask(idx) {
-  if (!tempChecklistTasks[idx]) return;
-  tempChecklistTasks[idx].done = !tempChecklistTasks[idx].done;
-  renderChecklistModalRows();
-}
-
-function removeTempTask(idx) {
-  tempChecklistTasks.splice(idx, 1);
-  renderChecklistModalRows();
-}
-
-function addChecklistTaskToModal() {
-  const input = document.getElementById("mpc_new_task");
-  const label = input.value.trim();
-  if (!label) return;
-  tempChecklistTasks.push({ label, done: false });
-  input.value = "";
-  renderChecklistModalRows();
-}
-
-async function saveChecklistFromModal() {
-  if (!currentProgChecklistId) return;
-  db.programme = db.programme.map((p) => {
-    if (p.id !== currentProgChecklistId) return p;
-    const allDone = tempChecklistTasks.length > 0 && tempChecklistTasks.every((t) => t.done);
-    const nextStatut = allDone && p.statut === "À préparer" ? "Prêt" : p.statut;
-    return {
-      ...p,
-      checklist: tempChecklistTasks.map((t) => ({ ...t })),
-      statut: nextStatut
-    };
-  });
-  closeM("modalProgChecklist");
-  await syncCloud(true);
-  renderAll();
-}
-
-function openWaInfoForProgramme(progId) {
-  const item = db.programme.find((p) => p.id === progId);
-  if (!item) return;
-  currentWaBranche = item.branche || "Toutes";
-  const datesTxt = item.fin && item.fin !== item.debut
-    ? `du ${item.debut} au ${item.fin}`
-    : `le ${item.debut}`;
-
-  document.getElementById("mwa_titre").textContent = `📱 Informer les parents — ${item.titre}`;
-  document.getElementById("mwa_message").value = buildActivityParentMessage(
-    item.titre,
-    item.branche,
-    datesTxt,
-    item.lieu,
-    item.type === "Camp / Week-end" ? item.frais : 0
-  );
-  refreshWaRecipientsList();
-  openM("modalWaInfo");
-}
-
-function openWaInfoForCamp(campId) {
-  const camp = db.camps.find((c) => c.id === campId);
-  if (!camp) return;
-  currentWaBranche = camp.branche || "Toutes";
-  const datesTxt = camp.fin && camp.fin !== camp.debut
-    ? `du ${camp.debut} au ${camp.fin}`
-    : `le ${camp.debut}`;
-  document.getElementById("mwa_titre").textContent = `📱 Informer les parents — ${camp.titre}`;
-  document.getElementById("mwa_message").value = buildActivityParentMessage(
-    camp.titre,
-    camp.branche,
-    datesTxt,
-    camp.lieu,
-    camp.frais
-  );
-  refreshWaRecipientsList();
-  openM("modalWaInfo");
-}
-
-function refreshWaRecipientsList() {
-  const container = document.getElementById("mwa_recipients");
-  if (!container) return;
-  const msg = document.getElementById("mwa_message").value;
-  const targets = db.scouts.filter(
-    (s) => currentWaBranche === "Toutes" || s.branche === currentWaBranche
-  );
-
-  if (targets.length === 0) {
-    container.innerHTML = "<p>Aucun jeune trouvé dans cette branche.</p>";
-    return;
+  const tbody = document.getElementById("scoutsTableBody");
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted);">Aucun jeune enregistré sur ce périmètre.</td></tr>`;
+  } else {
+    tbody.innerHTML = list.map((s) => `
+      <tr>
+        <td>
+          <strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong><br>
+          <small style="color:var(--muted);">${s.allergies ? "🩺 " + escapeHtml(s.allergies) : ""}</small>
+        </td>
+        <td><span class="badge badge-blue">${escapeHtml(s.branche)}</span></td>
+        <td>${escapeHtml(s.sexe || "-")}</td>
+        <td>${s.tenue_complete ? `<span class="badge badge-green">Complète</span>` : `<span class="badge badge-amber">À prévoir</span>`}</td>
+        <td>
+          ${escapeHtml(s.parent_nom || "Parent")}<br>
+          <small>${escapeHtml(s.parent_tel || "Non renseigné")}</small>
+        </td>
+        <td>
+          ${s.cotisation_annuelle === "paye" ? `<span class="badge badge-green">Annuelle OK</span>` : `<span class="badge badge-gray">En attente</span>`}<br>
+          <small>${escapeHtml(s.matricule || "Sans matricule")}</small>
+        </td>
+        <td>
+          <div class="actions-row">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="openScoutModal('${s.id}')">Modifier</button>
+            ${canManageStructure() ? `<button type="button" class="btn btn-sm btn-danger" onclick="deleteScout('${s.id}')">Suppr.</button>` : ""}
+          </div>
+        </td>
+      </tr>
+    `).join("");
   }
 
-  container.innerHTML = targets
-    .map((s) => {
-      if (!s.tel) {
-        return `<div style="padding:8px; border:1px solid #eee; border-radius:6px; display:flex; justify-content:space-between; align-items:center;"><span><strong>${s.nom}</strong> <small>(${s.branche})</small></span><small style="color:#888;">Pas de téléphone</small></div>`;
-      }
-      const waUrl = getWaLink(s.tel, msg);
-      return `<div style="padding:8px; border:1px solid #eee; border-radius:6px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;"><span><strong>${s.nom}</strong> <small>(${s.branche} • ${s.tel})</small></span><a href="${waUrl}" target="_blank" class="wa-btn">📱 WhatsApp</a></div>`;
-    })
-    .join("");
-}
+  const chefs = getScopedChefs();
+  const cSt = computeGenderStats(chefs);
+  document.getElementById("chefsStatsBar").innerHTML =
+    `Total maîtrise : <strong>${cSt.total}</strong> · Garçons : <strong>${cSt.garcons} (${cSt.pctG}%)</strong> · Filles : <strong>${cSt.filles} (${cSt.pctF}%)</strong>`;
 
-function renderProgramme() {
-  const listEl = document.getElementById("programmeList");
-  if (!listEl || !currentUser) return;
-
-  const filterBranche = currentUser.hasOverview
-    ? (document.getElementById("filterProgBranche")?.value || "Toutes")
-    : currentUser.brancheAutorisee;
-  const filterStatut = document.getElementById("filterProgStatut")?.value || "Tous";
-
-  const items = [...db.programme]
-    .filter((p) => {
-      const okB = filterBranche === "Toutes" || p.branche === "Toutes" || p.branche === filterBranche;
-      const okS = filterStatut === "Tous" || p.statut === filterStatut;
-      return okB && okS;
-    })
-    .sort((a, b) => String(a.debut || "").localeCompare(String(b.debut || "")));
-
-  if (items.length === 0) {
-    listEl.innerHTML = "<div class='card'><p>Aucune activité enregistrée dans le programme annuel.</p></div>";
-    return;
+  const chefsBody = document.getElementById("chefsTableBody");
+  if (!chefs.length) {
+    chefsBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucun chef enregistré.</td></tr>`;
+  } else {
+    chefsBody.innerHTML = chefs.map((c) => `
+      <tr>
+        <td><strong>${escapeHtml(c.nom)}</strong></td>
+        <td>${escapeHtml(c.fonction || "Chef")}</td>
+        <td>${escapeHtml(c.branche || "Groupe")}</td>
+        <td>${escapeHtml(c.sexe || "-")}</td>
+        <td>${escapeHtml(c.tel || "-")}</td>
+        <td>
+          ${canManageStructure() ? `
+            <button type="button" class="btn btn-sm btn-secondary" onclick="openChefModal('${c.id}')">Modifier</button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="deleteChef('${c.id}')">Suppr.</button>
+          ` : `<span class="badge badge-gray">Lecture</span>`}
+        </td>
+      </tr>
+    `).join("");
   }
-
-  listEl.innerHTML = items
-    .map((p) => {
-      const tasks = Array.isArray(p.checklist) ? p.checklist : [];
-      const doneCount = tasks.filter((t) => t.done).length;
-      const pct = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
-      const daysLeft = getDaysUntil(p.debut);
-      let urgencyHtml = "";
-      if (daysLeft !== null && p.statut !== "Réalisé") {
-        if (daysLeft < 0) urgencyHtml = `<span style="color:#c0392b; font-weight:bold;">• Date passée (${Math.abs(daysLeft)} j)</span>`;
-        else if (daysLeft <= 14) urgencyHtml = `<span style="color:#d35400; font-weight:bold;">• Dans ${daysLeft} j (Vérifier préparatifs)</span>`;
-        else urgencyHtml = `<span>• Dans ${daysLeft} j</span>`;
-      }
-
-      return `
-        <div class="item-card" style="border-left-color:#2980b9;">
-          <span class="b-badge" style="background:#2980b9;">${p.branche}</span>
-          <h3>${p.titre}</h3>
-          <p><strong>Type :</strong> ${p.type} | <strong>Statut :</strong> <strong>${p.statut}</strong></p>
-          <p>📅 ${p.debut}${p.fin && p.fin !== p.debut ? " au " + p.fin : ""} • 📍 ${p.lieu || "-"} ${urgencyHtml}</p>
-          ${p.type === "Camp / Week-end" ? `<p>🏕️ Relié aux Camps • Montant à payer : ${fPrix(p.frais)}</p>` : ""}
-          ${p.notes ? `<p style="font-style:italic; color:#444;">📝 ${p.notes}</p>` : ""}
-          <div style="margin-top:8px;">
-            <small>Préparation : ${pct}% (${doneCount}/${tasks.length} tâche(s))</small>
-            <div class="progress-bg"><div class="progress-bar" style="width:${pct}%; background:${pct === 100 ? "#27ae60" : "#e67e22"};"></div></div>
-          </div>
-          <div class="item-actions no-print">
-            <button class="btn btn-success" onclick="openProgChecklist('${p.id}')">✓ Suivi tâches</button>
-            <button class="wa-btn" onclick="openWaInfoForProgramme('${p.id}')">📱 Informer parents</button>
-            <button class="btn btn-edit" onclick="editProgrammeItem('${p.id}')">✏️ Éditer</button>
-            <button class="btn btn-danger" onclick="deleteProgrammeItem('${p.id}')">❌</button>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
 }
 
-function getDashboardRole() {
-  if (!currentUser) return "unite";
-  if (currentUser.isFinancier && !currentUser.canFullAdmin && !currentUser.isAdjoint) return "financier";
-  if (currentUser.canFullAdmin || currentUser.isAdjoint) return "cg";
-  return "unite";
+function openScoutModal(scoutId = null) {
+  const existing = scoutId ? db.scouts.find((s) => s.id === scoutId) : null;
+  const defaultBr = isCU() && currentUser.branche ? currentUser.branche : (existing ? existing.branche : "Meute");
+
+  openModal(existing ? "Modifier la fiche jeune" : "Ajouter un jeune", `
+    <form onsubmit="saveScout(event, '${existing ? existing.id : ""}')">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nom *</label>
+          <input type="text" id="sc_nom" value="${escapeHtml(existing ? existing.nom : "")}" required>
+        </div>
+        <div class="form-group">
+          <label>Prénoms *</label>
+          <input type="text" id="sc_prenom" value="${escapeHtml(existing ? existing.prenom : "")}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Branche *</label>
+          <select id="sc_branche" ${isCU() && currentUser.branche ? "disabled" : ""}>
+            ${BRANCHES.map((b) => `<option value="${b}" ${defaultBr === b ? "selected" : ""}>${b}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sexe *</label>
+          <select id="sc_sexe">
+            <option value="Garçon" ${existing && existing.sexe === "Garçon" ? "selected" : ""}>Garçon</option>
+            <option value="Fille" ${existing && existing.sexe === "Fille" ? "selected" : ""}>Fille</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Tenue scoute</label>
+          <select id="sc_tenue">
+            <option value="1" ${!existing || existing.tenue_complete ? "selected" : ""}>Tenue complète</option>
+            <option value="0" ${existing && !existing.tenue_complete ? "selected" : ""}>Sans tenue / Incomplète</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nom du parent / tuteur</label>
+          <input type="text" id="sc_parent_nom" value="${escapeHtml(existing ? existing.parent_nom : "")}">
+        </div>
+        <div class="form-group">
+          <label>Téléphone parent (WhatsApp)</label>
+          <input type="text" id="sc_parent_tel" value="${escapeHtml(existing ? existing.parent_tel : "")}" placeholder="+22507...">
+        </div>
+        <div class="form-group">
+          <label>Contact d'urgence secondaire</label>
+          <input type="text" id="sc_urgence_tel" value="${escapeHtml(existing ? existing.urgence_tel : "")}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Cotisation annuelle</label>
+          <select id="sc_cot_annuelle">
+            <option value="en_attente" ${!existing || existing.cotisation_annuelle !== "paye" ? "selected" : ""}>En attente</option>
+            <option value="paye" ${existing && existing.cotisation_annuelle === "paye" ? "selected" : ""}>Payée</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Matricule national / ECC</label>
+          <input type="text" id="sc_matricule" value="${escapeHtml(existing ? existing.matricule : "")}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Allergies / Infos médicales utiles en camp</label>
+        <input type="text" id="sc_allergies" value="${escapeHtml(existing ? existing.allergies : "")}">
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
 }
 
-function renderDashboard() {
-  const container = document.getElementById("dashboardContent");
-  if (!container || !currentUser) return;
+async function saveScout(e, id) {
+  e.preventDefault();
+  const brancheVal = isCU() && currentUser.branche
+    ? currentUser.branche
+    : document.getElementById("sc_branche").value;
 
-  const role = getDashboardRole();
-  const branches = ["Oisillon", "Meute", "Troupe", "Chemin", "Route"];
-
-  const totalEntrees = db.finances
-    .filter((f) => f.type === "in")
-    .reduce((sum, f) => sum + Number(f.montant || 0), 0);
-  const totalSorties = db.finances
-    .filter((f) => f.type === "out")
-    .reduce((sum, f) => sum + Number(f.montant || 0), 0);
-  const soldeCaisse = totalEntrees - totalSorties;
-
-  const upcomingItems = [...db.programme]
-    .filter((p) => p.statut !== "Réalisé" && p.statut !== "Reporté")
-    .sort((a, b) => String(a.debut || "").localeCompare(String(b.debut || "")))
-    .slice(0, 4);
-
-  const upcomingHtml = upcomingItems.length === 0
-    ? "<p style='color:#666;'>Aucune activité à venir dans le programme.</p>"
-    : upcomingItems
-        .map((p) => {
-          const tasks = Array.isArray(p.checklist) ? p.checklist : [];
-          const done = tasks.filter((t) => t.done).length;
-          return `<div style="padding:8px 0; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;"><span><strong>${p.debut}</strong> — ${p.titre} <small>(${p.branche})</small></span><small style="color:#d35400; font-weight:bold;">${p.statut} • ${done}/${tasks.length} tâches</small></div>`;
-        })
-        .join("");
-
-  if (role === "cg") {
-    const jeunesAJour = db.scouts.filter((s) => s.cotisation).length;
-    const chefsAJour = db.chefs.filter((c) => c.cotisation).length;
-    const parBrancheHtml = branches
-      .map((b) => {
-        const count = db.scouts.filter((s) => s.branche === b).length;
-        return `<div class="card" style="margin-bottom:0; padding:14px;"><strong>${b}</strong><p style="font-size:1.3rem; margin-top:4px;">${count} <small style="font-size:0.8rem;">jeune(s)</small></p></div>`;
-      })
-      .join("");
-
-    const roleTitle = currentUser.isAdjoint
-      ? "📊 Tableau de bord — Chef de Groupe Adjoint (Vision globale)"
-      : "📊 Tableau de bord — Chef de Groupe";
-
-    const financeCardHtml = canManageFinancesAndMatricules()
-      ? `<div class="card" style="margin-bottom:0; text-align:center;">
-           <small>Solde de Caisse</small>
-           <h2 style="color:${soldeCaisse >= 0 ? "#27ae60" : "#c0392b"}; margin-top:5px;">${fPrix(soldeCaisse)}</h2>
-           <small>Entrées : ${fPrix(totalEntrees)} • Sorties : ${fPrix(totalSorties)}</small>
-         </div>`
-      : `<div class="card" style="margin-bottom:0; text-align:center;">
-           <small>Matricules ASCCI attribués</small>
-           <h2 style="color:#2980b9; margin-top:5px;">${db.scouts.filter((s) => Boolean(s.mat)).length} / ${db.scouts.length}</h2>
-           <small>Après paiement cotisation annuelle</small>
-         </div>`;
-
-    container.innerHTML = `
-      <div class="card" style="border-left: 5px solid var(--c-cg);">
-        <h2 class="card-header">${roleTitle}</h2>
-        <p style="color:#555; margin-bottom:15px;">Vue d'ensemble du Groupe OBION (Saint Bernard d'Adiopodoumé KM17).</p>
-        <div class="grid-form">
-          <div class="card" style="margin-bottom:0; text-align:center;">
-            <small>Effectif Jeunes</small>
-            <h2 style="color:var(--text-main); margin-top:5px;">${db.scouts.length}</h2>
-            <small style="color:#27ae60;">${jeunesAJour} à jour de cotisation</small>
-          </div>
-          <div class="card" style="margin-bottom:0; text-align:center;">
-            <small>Maîtrise</small>
-            <h2 style="color:var(--c-cg); margin-top:5px;">${db.chefs.length}</h2>
-            <small>${chefsAJour} chef(s) à jour</small>
-          </div>
-          ${financeCardHtml}
-          <div class="card" style="margin-bottom:0; text-align:center;">
-            <small>Programme & Camps</small>
-            <h2 style="color:#2980b9; margin-top:5px;">${db.programme.length} / ${db.camps.length}</h2>
-            <small>Activités annuelles / Camps</small>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-header">🗓️ Prochaines échéances & préparation</h3>
-        ${upcomingHtml}
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;">
-          <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Ouvrir le programme annuel</button>
-          ${canManageFinancesAndMatricules() ? `<button class="btn btn-warning" onclick="nav('finances')">Voir la caisse & matricules</button>` : ""}
-          <button class="btn btn-secondary" onclick="nav('effectifs')">Effectifs</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-header">⚜️ Répartition par branche</h3>
-        <div class="grid-form">${parBrancheHtml}</div>
-      </div>
-    `;
-    return;
-  }
-
-  if (role === "financier") {
-    const scoutsImpayes = db.scouts.filter((s) => !s.cotisation).length;
-    const sansMatricule = db.scouts.filter((s) => s.cotisation && !s.mat).length;
-
-    container.innerHTML = `
-      <div class="card" style="border-left: 5px solid #27ae60;">
-        <h2 class="card-header">💰 Tableau de bord — Trésorier / Financier</h2>
-        <p style="color:#555; margin-bottom:15px;">Gestion des cotisations (annuelles et mensuelles), de la caisse et des matricules ASCCI après paiement.</p>
-        <div class="grid-form">
-          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #27ae60;">
-            <small>Total Entrées</small>
-            <h2 style="color:#27ae60; margin-top:5px;">${fPrix(totalEntrees)}</h2>
-          </div>
-          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #c0392b;">
-            <small>Total Sorties</small>
-            <h2 style="color:#c0392b; margin-top:5px;">${fPrix(totalSorties)}</h2>
-          </div>
-          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid var(--text-main);">
-            <small>Solde Caisse</small>
-            <h2 style="color:var(--text-main); margin-top:5px;">${fPrix(soldeCaisse)}</h2>
-          </div>
-          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #2980b9;">
-            <small>Matricules à attribuer</small>
-            <h2 style="color:#2980b9; margin-top:5px;">${sansMatricule}</h2>
-            <small>${scoutsImpayes} jeune(s) en attente de cotisation</small>
-          </div>
-        </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
-          <button class="btn btn-warning" onclick="nav('finances')">Caisse, Cotisations & Matricules</button>
-          <button class="btn btn-secondary" onclick="nav('effectifs')">Voir les effectifs</button>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  const maBranche =
-    currentUser.brancheAutorisee && currentUser.brancheAutorisee !== "Toutes"
-      ? currentUser.brancheAutorisee
-      : "Toutes";
-  const mesScouts = db.scouts.filter((s) => maBranche === "Toutes" || s.branche === maBranche);
-  const mesAJour = mesScouts.filter((s) => s.cotisation).length;
-  const mesAppels = db.presences.filter(
-    (p) => maBranche === "Toutes" || p.branche === "Toutes" || p.branche === maBranche
-  );
-  const dernierAppel = mesAppels.length > 0 ? mesAppels[mesAppels.length - 1] : null;
-
-  const moyProg =
-    mesScouts.length > 0
-      ? Math.round(
-          mesScouts.reduce((acc, s) => {
-            const etapes = getEtapesBranche(s.branche);
-            const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
-            return acc + (valid.length / Math.max(1, etapes.length)) * 100;
-          }, 0) / mesScouts.length
-        )
-      : 0;
-
-  container.innerHTML = `
-    <div class="card" style="border-left: 5px solid #3498db;">
-      <h2 class="card-header">🏕️ Tableau de bord — Chef d'Unité (${maBranche})</h2>
-      <p style="color:#555; margin-bottom:15px;">Suivi quotidien de votre unité : effectifs, progression pédagogique, programme et appels.</p>
-      <div class="grid-form">
-        <div class="card" style="margin-bottom:0; text-align:center;">
-          <small>Jeunes de l'unité</small>
-          <h2 style="color:var(--text-main); margin-top:5px;">${mesScouts.length}</h2>
-          <small style="color:#27ae60;">${mesAJour} à jour de cotisation</small>
-        </div>
-        <div class="card" style="margin-bottom:0; text-align:center;">
-          <small>Progression moyenne</small>
-          <h2 style="color:#27ae60; margin-top:5px;">${moyProg}%</h2>
-          <div class="progress-bg"><div class="progress-bar" style="width:${moyProg}%;"></div></div>
-        </div>
-        <div class="card" style="margin-bottom:0; text-align:center;">
-          <small>Dernier appel</small>
-          <h3 style="color:#3498db; margin-top:6px;">${dernierAppel ? `${dernierAppel.presents}/${dernierAppel.total} présents` : "Aucun appel"}</h3>
-          <small>${dernierAppel ? `${dernierAppel.titre} (${dernierAppel.date})` : "Prêt pour le prochain appel"}</small>
-        </div>
-      </div>
-      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
-        <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Programme de l'unité</button>
-        <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="nav('effectifs')">Effectifs</button>
-        <button class="btn btn-success" onclick="nav('pedagogie')">Pédagogie</button>
-        <button class="btn btn-secondary" onclick="nav('presences')">Faire l'appel</button>
-      </div>
-    </div>
-  `;
-}
-
-function autoBranch() {
-  const ddnVal = document.getElementById("s_ddn").value;
-  const hint = document.getElementById("s_age_hint");
-  const branchInput = document.getElementById("s_branche");
-  if (!ddnVal) {
-    hint.textContent = "";
-    branchInput.value = "";
-    return;
-  }
-
-  const birth = new Date(ddnVal);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-
-  let branche = "Oisillon";
-  if (age < 7) branche = "Oisillon";
-  else if (age <= 11) branche = "Meute";
-  else if (age <= 15) branche = "Troupe";
-  else if (age <= 18) branche = "Chemin";
-  else branche = "Route";
-
-  hint.textContent = `Âge : ${age} ans`;
-  branchInput.value = branche;
-}
-
-function resetScoutForm() {
-  document.getElementById("s_id").value = "";
-  document.getElementById("formTitleScout").textContent = "➕ Inscrire un jeune";
-  ["s_nom", "s_ddn", "s_branche", "s_sousunite", "s_role", "s_tel", "s_tel_perso", "s_parrain", "s_parrain_tel", "s_medical", "s_urgence"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-  document.getElementById("s_sang").value = "Inconnu";
-  document.getElementById("s_age_hint").textContent = "";
-}
-
-async function saveScout() {
-  const id = document.getElementById("s_id").value;
-  const nom = document.getElementById("s_nom").value.trim();
-  const ddn = document.getElementById("s_ddn").value;
-  const branche = document.getElementById("s_branche").value.trim() || "Oisillon";
-  const tel = document.getElementById("s_tel").value.trim();
-
-  if (!nom || !ddn || !tel) {
-    alert("Merci de renseigner au moins le nom complet, la date de naissance et le contact parent.");
-    return;
-  }
-
-  const existing = id ? db.scouts.find((s) => s.id === id) : null;
-  const record = {
-    id: id || "sc_" + Date.now(),
-    mat: existing ? (existing.mat || "") : "",
-    nom,
-    ddn,
-    branche,
-    sousunite: document.getElementById("s_sousunite").value.trim(),
-    role: document.getElementById("s_role").value.trim(),
-    tel,
-    tel_perso: document.getElementById("s_tel_perso").value.trim(),
-    parrain: document.getElementById("s_parrain").value.trim(),
-    parrain_tel: document.getElementById("s_parrain_tel").value.trim(),
-    sang: document.getElementById("s_sang").value,
-    medical: document.getElementById("s_medical").value.trim(),
-    urgence: document.getElementById("s_urgence").value.trim(),
-    cotisation: existing ? Boolean(existing.cotisation) : false,
-    totem: existing ? (existing.totem || "") : "",
-    etapesValidees: existing ? (existing.etapesValidees || []) : [],
-    obs: existing ? (existing.obs || "") : ""
+  const payload = {
+    id: id || uid("scout"),
+    nom: document.getElementById("sc_nom").value.trim(),
+    prenom: document.getElementById("sc_prenom").value.trim(),
+    branche: brancheVal,
+    sexe: document.getElementById("sc_sexe").value,
+    tenue_complete: document.getElementById("sc_tenue").value === "1",
+    parent_nom: document.getElementById("sc_parent_nom").value.trim(),
+    parent_tel: document.getElementById("sc_parent_tel").value.trim(),
+    urgence_tel: document.getElementById("sc_urgence_tel").value.trim(),
+    cotisation_annuelle: document.getElementById("sc_cot_annuelle").value,
+    matricule: document.getElementById("sc_matricule").value.trim(),
+    allergies: document.getElementById("sc_allergies").value.trim()
   };
 
-  if (existing) {
-    db.scouts = db.scouts.map((s) => (s.id === id ? record : s));
+  if (id) {
+    db.scouts = db.scouts.map((s) => (s.id === id ? { ...s, ...payload } : s));
   } else {
-    db.scouts.push(record);
+    db.scouts.push({ ...payload, etape_pedago: "Début", notes_pedago: "" });
   }
-
-  resetScoutForm();
-  await syncCloud(true);
-  renderAll();
-}
-
-function editScout(id) {
-  const s = db.scouts.find((item) => item.id === id);
-  if (!s) return;
-  document.getElementById("s_id").value = s.id;
-  document.getElementById("formTitleScout").textContent = "✏️ Modifier le dossier de " + s.nom;
-  document.getElementById("s_nom").value = s.nom || "";
-  document.getElementById("s_ddn").value = s.ddn || "";
-  document.getElementById("s_branche").value = s.branche || "";
-  document.getElementById("s_sousunite").value = s.sousunite || "";
-  document.getElementById("s_role").value = s.role || "";
-  document.getElementById("s_tel").value = s.tel || "";
-  document.getElementById("s_tel_perso").value = s.tel_perso || "";
-  document.getElementById("s_parrain").value = s.parrain || "";
-  document.getElementById("s_parrain_tel").value = s.parrain_tel || "";
-  document.getElementById("s_sang").value = s.sang || "Inconnu";
-  document.getElementById("s_medical").value = s.medical || "";
-  document.getElementById("s_urgence").value = s.urgence || "";
-  autoBranch();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  closeModal();
+  await persistDb(id ? "Modification jeune" : "Ajout jeune", `${payload.nom} ${payload.prenom} (${payload.branche})`);
 }
 
 async function deleteScout(id) {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut supprimer un dossier.");
-    return;
-  }
-  const s = db.scouts.find((item) => item.id === id);
-  if (!s) return;
-  if (!confirm("Supprimer le dossier de " + s.nom + " ?")) return;
-  db.scouts = db.scouts.filter((item) => item.id !== id);
-  await syncCloud(true);
-  renderAll();
+  if (!canManageStructure()) return;
+  if (!confirm("Supprimer cette fiche jeune ?")) return;
+  db.scouts = db.scouts.filter((s) => s.id !== id);
+  await persistDb("Suppression jeune", id);
 }
 
-function downloadCsvTemplate() {
-  const csv = "Nom;DateNaissance;Branche;SousUnite;Role;ContactParent;ContactJeune;Parrain;ContactParrain;Sang;Medical;Urgence\nKouassi Jean;2014-05-12;Troupe;Aigle;Chef de Patrouille;0700000000;;Koffi Paul;0100000000;O+;Aucune;0500000000";
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "modele_effectifs_obion.csv";
-  link.click();
+function openChefModal(chefId = null) {
+  if (!canManageStructure()) return;
+  const existing = chefId ? db.chefs.find((c) => c.id === chefId) : null;
+  openModal(existing ? "Modifier un chef" : "Ajouter un chef", `
+    <form onsubmit="saveChef(event, '${existing ? existing.id : ""}')">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nom & Prénoms *</label>
+          <input type="text" id="ch_nom" value="${escapeHtml(existing ? existing.nom : "")}" required>
+        </div>
+        <div class="form-group">
+          <label>Fonction</label>
+          <input type="text" id="ch_fonction" value="${escapeHtml(existing ? existing.fonction : "Chef d'Unité")}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Branche</label>
+          <select id="ch_branche">
+            <option value="Groupe" ${!existing || existing.branche === "Groupe" ? "selected" : ""}>Groupe / Direction</option>
+            ${BRANCHES.map((b) => `<option value="${b}" ${existing && existing.branche === b ? "selected" : ""}>${b}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sexe</label>
+          <select id="ch_sexe">
+            <option value="Garçon" ${!existing || existing.sexe === "Garçon" ? "selected" : ""}>Garçon</option>
+            <option value="Fille" ${existing && existing.sexe === "Fille" ? "selected" : ""}>Fille</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Téléphone</label>
+          <input type="text" id="ch_tel" value="${escapeHtml(existing ? existing.tel : "")}">
+        </div>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
 }
 
-async function importScoutsCSV(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const text = await file.text();
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length <= 1) return;
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(/[;,]/).map((c) => c.trim());
-    if (!cols[0]) continue;
-    db.scouts.push({
-      id: "sc_" + Date.now() + "_" + i,
-      mat: "",
-      nom: cols[0],
-      ddn: cols[1] || "2015-01-01",
-      branche: cols[2] || "Meute",
-      sousunite: cols[3] || "",
-      role: cols[4] || "",
-      tel: cols[5] || "",
-      tel_perso: cols[6] || "",
-      parrain: cols[7] || "",
-      parrain_tel: cols[8] || "",
-      sang: cols[9] || "Inconnu",
-      medical: cols[10] || "",
-      urgence: cols[11] || "",
-      cotisation: false,
-      totem: "",
-      etapesValidees: [],
-      obs: ""
-    });
-  }
-  event.target.value = "";
-  await syncCloud(true);
-  renderAll();
-}
-
-function exportScoutsCSV() {
-  const header = "MatriculeASCCI;Nom;Branche;SousUnite;ContactParent;Parrain;ContactParrain;CotisationAnnuelle;PartASCCI;PartCaisseGroupe;Absences";
-  const rows = db.scouts.map((s) => {
-    const abs = getAbsenceCountForScout(s.nom, s.branche);
-    const partAscci = s.cotisation ? 2085 : 0;
-    const partGroupe = s.cotisation ? 415 : 0;
-    return [
-      s.mat || "En attente",
-      s.nom || "",
-      s.branche || "",
-      s.sousunite || "",
-      s.tel || "",
-      s.parrain || "",
-      s.parrain_tel || "",
-      s.cotisation ? "A jour (2500)" : "Impaye",
-      partAscci,
-      partGroupe,
-      abs
-    ]
-      .map((v) => String(v).replace(/;/g, ","))
-      .join(";");
-  });
-  const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], {
-    type: "text/csv;charset=utf-8;"
-  });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "effectifs_obion.csv";
-  link.click();
-}
-
-function exportFinancesCSV() {
-  const header = "Date;Type;Categorie;Motif;MontantTotal;PartASCCI;PartCaisseGroupe";
-  const rows = db.finances.map((f) => {
-    const amt = Number(f.montant || 0);
-    const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && amt === 2500;
-    const partAscci = isCotiJeune ? 2085 : "";
-    const partGroupe = isCotiJeune ? 415 : "";
-    return [
-      f.date || "",
-      f.type === "in" ? "Entree" : "Sortie",
-      f.cat || "",
-      String(f.motif || "").replace(/;/g, ","),
-      amt,
-      partAscci,
-      partGroupe
-    ].join(";");
-  });
-  const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], {
-    type: "text/csv;charset=utf-8;"
-  });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "finances_obion.csv";
-  link.click();
-}
-
-function exportBackupJSON() {
-  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `sauvegarde_obion_${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-}
-
-async function importBackupJSON(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    const parsed = JSON.parse(await file.text());
-    db = parsed;
-    normalizeDb();
-    applyAppAndBrandLogos();
-    populateLoginSelect();
-    await syncCloud(true);
-    renderAll();
-    alert("Sauvegarde JSON restaurée avec succès.");
-  } catch (err) {
-    alert("Fichier JSON invalide.");
-  }
-  event.target.value = "";
-}
-
-function getEtapesBranche(branche) {
-  const raw = (db.settings.prog && db.settings.prog[branche]) || "";
-  const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  return list.length > 0 ? list : ["Étape 1", "Étape 2", "Étape 3"];
-}
-
-function openPedaModal(id) {
-  const s = db.scouts.find((item) => item.id === id);
-  if (!s) return;
-  currentPedaScoutId = id;
-  document.getElementById("mp_nom").textContent = s.nom;
-  document.getElementById("mp_info").textContent = `${s.branche} • Matricule ASCCI : ${s.mat || "En attente"} • ${s.sousunite || "Unité"}`;
-  document.getElementById("mp_totem").value = s.totem || "";
-  document.getElementById("mp_obs").value = s.obs || "";
-
-  const etapes = getEtapesBranche(s.branche);
-  const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
-  document.getElementById("mp_etapes").innerHTML = etapes
-    .map((etape, idx) => `
-      <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
-        <input type="checkbox" class="peda-step-chk" value="${idx}" ${valid.includes(idx) ? "checked" : ""}>
-        ${etape}
-      </label>
-    `)
-    .join("");
-
-  openM("modalPeda");
-}
-
-async function savePeda() {
-  if (!currentPedaScoutId) return;
-  const checkedIndices = Array.from(document.querySelectorAll(".peda-step-chk:checked")).map((el) =>
-    Number(el.value)
-  );
-  db.scouts = db.scouts.map((s) => {
-    if (s.id !== currentPedaScoutId) return s;
-    return {
-      ...s,
-      totem: document.getElementById("mp_totem").value.trim(),
-      obs: document.getElementById("mp_obs").value.trim(),
-      etapesValidees: checkedIndices
-    };
-  });
-  closeM("modalPeda");
-  await syncCloud(true);
-  renderAll();
-}
-
-function generateCommandes() {
-  const rows = db.scouts.map((s) => {
-    const etapes = getEtapesBranche(s.branche);
-    const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
-    const nextIdx = etapes.findIndex((_, i) => !valid.includes(i));
-    const nextStep = nextIdx === -1 ? "Progression complète" : etapes[nextIdx];
-    return `<tr><td>${s.mat || "En attente"}</td><td>${s.nom}</td><td>${s.branche}</td><td>${nextStep}</td></tr>`;
-  });
-
-  document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Commande d'Insignes", "Suivi pédagogique des jeunes")}
-    <table>
-      <thead><tr><th>Matricule ASCCI</th><th>Nom</th><th>Branche</th><th>Prochain insigne / étape</th></tr></thead>
-      <tbody>${rows.join("") || "<tr><td colspan='4'>Aucun jeune enregistré.</td></tr>"}</tbody>
-    </table>
-    ${renderCachetCG(true)}
-  `;
-  window.print();
-}
-
-function openAutoConfig(targetType, targetId) {
-  currentAutoTarget = { targetType, targetId };
-  let label = "Groupe Obion";
-  let targetBranche = "Toutes";
-  if (targetType === "scout") {
-    const s = db.scouts.find((x) => x.id === targetId);
-    if (s) {
-      targetBranche = s.branche;
-      label = `${s.nom} (${s.branche}${s.mat ? " • Mat: " + s.mat : ""})`;
-    }
-  } else if (targetType === "camp") {
-    const c = db.camps.find((x) => x.id === targetId);
-    if (c) {
-      targetBranche = c.branche;
-      label = `${c.titre} (${c.branche})`;
-      document.getElementById("ma_custom_text").value =
-        `à participer au camp « ${c.titre} » à ${c.lieu} du ${c.debut} au ${c.fin}.`;
-    }
-  }
-  currentAutoTarget.branche = targetBranche;
-  document.getElementById("ma_target_name").textContent = label;
-  document.getElementById("ma_include_cachet").checked =
-    db.settings ? db.settings.cachet_actif !== false : true;
-  openM("modalAutoConfig");
-}
-
-function printAutoRun() {
-  const customText = document.getElementById("ma_custom_text").value.trim();
-  const includeCachet = document.getElementById("ma_include_cachet").checked;
-  const targetLabel = document.getElementById("ma_target_name").textContent || "Groupe Obion";
-  const cgNom = db.settings.cg_nom || "Le Chef de Groupe";
-  const cgTel = db.settings.cg_tel || "";
-
-  let branchName = currentAutoTarget && currentAutoTarget.branche ? currentAutoTarget.branche : "";
-  let detailsHtml = `<p><strong>Concerné :</strong> ${targetLabel}</p>`;
-  if (currentAutoTarget && currentAutoTarget.targetType === "scout") {
-    const s = db.scouts.find((x) => x.id === currentAutoTarget.targetId);
-    if (s) {
-      branchName = s.branche;
-      detailsHtml = `
-        <p><strong>Jeune :</strong> ${s.nom} | <strong>Branche :</strong> ${s.branche} | <strong>Matricule ASCCI :</strong> ${s.mat || "En attente"}</p>
-        <p><strong>Contact parent :</strong> ${s.tel || "-"} | <strong>Urgence :</strong> ${s.urgence || "-"}</p>
-      `;
-    }
-  }
-
-  const cuPrincipal = findPrincipalCUForBranch(branchName);
-  const cuLine = cuPrincipal
-    ? `<p><strong>CU principal (${branchName}) :</strong> ${cuPrincipal.nom}${cuPrincipal.tel ? " • Tél : " + cuPrincipal.tel : ""}</p>`
-    : (branchName && branchName !== "Toutes" ? `<p><strong>CU principal (${branchName}) :</strong> Numéro non renseigné dans Maîtrise</p>` : "");
-
-  document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Autorisation Parentale", "Groupe Scout OBION — St Bernard d'Adiopodoumé KM17")}
-    <div style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
-      ${detailsHtml}
-      <p><strong>Chef de Groupe :</strong> ${cgNom}${cgTel ? " • Tél : " + cgTel : ""}</p>
-      ${cuLine}
-    </div>
-    <p style="margin:14px 0; line-height:1.6;">
-      Je soussigné(e), parent / tuteur légal, autorise le jeune concerné <strong>${customText}</strong>
-    </p>
-    <p style="margin-top:20px;"><strong>Nom & Signature du parent / tuteur :</strong> ___________________________________</p>
-    ${renderCachetCG(includeCachet)}
-  `;
-  closeM("modalAutoConfig");
-  window.print();
-}
-
-async function saveCamp() {
-  const titre = document.getElementById("camp_titre").value.trim();
-  const lieu = document.getElementById("camp_lieu").value.trim();
-  const debut = document.getElementById("camp_debut").value;
-  const fin = document.getElementById("camp_fin").value;
-  const branche = currentUser.hasOverview
-    ? document.getElementById("camp_branche").value
-    : currentUser.brancheAutorisee;
-  const frais = Number(document.getElementById("camp_frais").value || 0);
-
-  if (!titre || !lieu || !debut || !fin) {
-    alert("Merci de remplir le titre, le lieu et les dates du camp.");
-    return;
-  }
-
-  const campId = "camp_" + Date.now();
-  db.camps.push({
-    id: campId,
-    titre,
-    lieu,
-    debut,
-    fin,
-    branche,
-    frais,
-    participants: []
-  });
-
-  db.programme.push({
-    id: "prog_" + Date.now(),
-    titre,
-    type: "Camp / Week-end",
-    debut,
-    fin,
-    lieu,
-    branche,
-    statut: "À préparer",
-    frais,
-    notes: "Créé depuis Camps & WE",
-    linkedCampId: campId,
-    checklist: getDefaultChecklist("Camp / Week-end")
-  });
-
-  document.getElementById("camp_titre").value = "";
-  document.getElementById("camp_lieu").value = "";
-  document.getElementById("camp_debut").value = "";
-  document.getElementById("camp_fin").value = "";
-  document.getElementById("camp_frais").value = "0";
-
-  await syncCloud(true);
-  renderAll();
-}
-
-function openCampPart(campId) {
-  const camp = db.camps.find((c) => c.id === campId);
-  if (!camp) return;
-  currentCampId = campId;
-  const eligibleScouts = db.scouts.filter(
-    (s) => camp.branche === "Toutes" || s.branche === camp.branche
-  );
-  const currentPart = Array.isArray(camp.participants) ? camp.participants : [];
-
-  document.getElementById("campPartList").innerHTML = eligibleScouts.length === 0
-    ? "<p>Aucun jeune dans cette branche.</p>"
-    : eligibleScouts
-        .map((s) => {
-          const found = currentPart.find((p) => p.scoutId === s.id);
-          const checked = Boolean(found);
-          const paye = found ? Number(found.paye || 0) : 0;
-          return `
-            <div style="border:1px solid #eee; padding:8px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
-              <label style="display:flex; align-items:center; gap:8px;">
-                <input type="checkbox" class="camp-part-chk" data-scout-id="${s.id}" ${checked ? "checked" : ""}>
-                <span><strong>${s.nom}</strong> <small>(${s.branche})</small></span>
-              </label>
-              <div>
-                <small>Payé (FCFA) :</small>
-                <input type="number" min="0" class="camp-part-paye" data-scout-id="${s.id}" value="${paye}" style="width:110px;">
-              </div>
-            </div>
-          `;
-        })
-        .join("");
-
-  openM("modalCampPart");
-}
-
-async function saveCampPart() {
-  if (!currentCampId) return;
-  const checkedIds = Array.from(document.querySelectorAll(".camp-part-chk:checked")).map(
-    (el) => el.dataset.scoutId
-  );
-  const participants = checkedIds.map((scoutId) => {
-    const payeInput = document.querySelector(`.camp-part-paye[data-scout-id="${scoutId}"]`);
-    return {
-      scoutId,
-      paye: Number(payeInput ? payeInput.value : 0)
-    };
-  });
-
-  db.camps = db.camps.map((c) => (c.id === currentCampId ? { ...c, participants } : c));
-  closeM("modalCampPart");
-  await syncCloud(true);
-  renderAll();
-}
-
-async function deleteCamp(campId) {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut supprimer un camp.");
-    return;
-  }
-  if (!confirm("Supprimer ce camp / week-end ?")) return;
-  db.camps = db.camps.filter((c) => c.id !== campId);
-  db.programme = db.programme.filter((p) => p.linkedCampId !== campId);
-  await syncCloud(true);
-  renderAll();
-}
-
-function genAppel() {
-  const branche = currentUser && !currentUser.hasOverview
-    ? currentUser.brancheAutorisee
-    : document.getElementById("p_branche").value;
-  const box = document.getElementById("appelBox");
-  if (!branche) {
-    box.style.display = "none";
-    return;
-  }
-
-  const list = db.scouts.filter((s) => branche === "Toutes" || s.branche === branche);
-  box.style.display = "block";
-  box.innerHTML = list.length === 0
-    ? "<p>Aucun jeune trouvé pour cette branche.</p>"
-    : list
-        .map((s) => `
-          <label style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid #f0f0f0;">
-            <span><strong>${s.nom}</strong> <small>(${s.branche})</small></span>
-            <span>
-              <input type="checkbox" class="appel-chk" data-nom="${s.nom}" checked> Présent
-            </span>
-          </label>
-        `)
-        .join("");
-}
-
-async function savePresence() {
-  const date = document.getElementById("p_date").value;
-  const titre = document.getElementById("p_titre").value.trim();
-  const branche = currentUser.hasOverview
-    ? document.getElementById("p_branche").value
-    : currentUser.brancheAutorisee;
-  const resp = document.getElementById("p_resp").value || currentUser.nom;
-
-  if (!date || !titre || !branche) {
-    alert("Merci d'indiquer la date, le titre et la branche.");
-    return;
-  }
-
-  const checks = Array.from(document.querySelectorAll(".appel-chk"));
-  if (checks.length === 0) {
-    alert("Clique d'abord sur 'Lister les scouts pour l'appel'.");
-    return;
-  }
-
-  const presentsList = checks.filter((c) => c.checked).map((c) => c.dataset.nom);
-  const absentsList = checks.filter((c) => !c.checked).map((c) => c.dataset.nom);
-
-  db.presences.push({
-    id: "pr_" + Date.now(),
-    date,
-    titre,
-    branche,
-    resp,
-    presents: presentsList.length,
-    total: checks.length,
-    presentsList,
-    absentsList
-  });
-
-  document.getElementById("p_titre").value = "";
-  document.getElementById("appelBox").style.display = "none";
-
-  await syncCloud(true);
-  renderAll();
-}
-
-function openPresDetails(id) {
-  const p = db.presences.find((item) => item.id === id);
-  if (!p) return;
-  currentPresId = id;
-  document.getElementById("mpres_titre").textContent = `${p.titre} (${p.branche})`;
-  document.getElementById("mpres_date").textContent = "Date : " + new Date(p.date).toLocaleDateString("fr-FR");
-  document.getElementById("mpres_resp").textContent = "Responsable : " + p.resp;
-
-  const pList = p.presentsList || [];
-  const aList = p.absentsList || [];
-  document.getElementById("count_p").textContent = pList.length;
-  document.getElementById("count_a").textContent = aList.length;
-  document.getElementById("list_p").innerHTML = pList.map((n) => `<li>• ${n}</li>`).join("") || "<li>Aucun</li>";
-
-  if (aList.length === 0) {
-    document.getElementById("list_a").innerHTML = "<li>Aucun absent</li>";
-  } else {
-    document.getElementById("list_a").innerHTML = aList
-      .map((nomAbsent) => {
-        const scout =
-          db.scouts.find((s) => s.nom === nomAbsent && (p.branche === "Toutes" || s.branche === p.branche)) ||
-          db.scouts.find((s) => s.nom === nomAbsent);
-        const totalAbs = getAbsenceCountForScout(nomAbsent, p.branche);
-        const absBadge = totalAbs >= 2 ? `<small style="color:#c0392b; font-weight:bold;">(${totalAbs} absences)</small>` : "";
-
-        if (!scout || !scout.tel) {
-          return `<li style="margin-bottom:8px;">• ${nomAbsent} ${absBadge} <small style="color:#888;">(Pas de n° parent)</small></li>`;
-        }
-
-        const msg = buildAbsentParentMessage(scout, p);
-        const waUrl = getWaLink(scout.tel, msg);
-        const smsUrl = getSmsLink(scout.tel, msg);
-
-        return `
-          <li style="margin-bottom:10px; padding-bottom:8px; border-bottom:1px dashed #eee;">
-            <div><strong>${scout.nom}</strong> <small>(${scout.tel})</small> ${absBadge}</div>
-            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
-              <a href="${waUrl}" target="_blank" class="wa-btn">📱 WhatsApp</a>
-              <a href="${smsUrl}" class="btn btn-secondary" style="padding:3px 8px; border-radius:12px; font-size:0.75rem;">✉️ SMS</a>
-            </div>
-          </li>
-        `;
-      })
-      .join("");
-  }
-
-  openM("modalPresDetails");
-}
-
-function copyWhatsApp() {
-  const p = db.presences.find((item) => item.id === currentPresId);
-  if (!p) return;
-  const text = `📋 *Appel - Groupe OBION*\nActivité : ${p.titre} (${p.branche})\nDate : ${p.date}\n✅ Présents : ${p.presents}/${p.total}\n❌ Absents : ${(p.absentsList || []).join(", ") || "Aucun"}`;
-  navigator.clipboard?.writeText(text);
-  alert("Rapport copié pour WhatsApp !");
-}
-
-function printPresence() {
-  const p = db.presences.find((item) => item.id === currentPresId);
-  if (!p) return;
-  document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Fiche d'Appel", `${p.titre} • ${p.branche}`)}
-    <p><strong>Date :</strong> ${p.date} | <strong>Responsable :</strong> ${p.resp}</p>
-    <p><strong>Présents :</strong> ${p.presents} / ${p.total}</p>
-    <p><strong>Absents :</strong> ${(p.absentsList || []).join(", ") || "Aucun"}</p>
-    ${renderCachetCG(true)}
-  `;
-  window.print();
-}
-
-async function delPres(id) {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut supprimer un appel.");
-    return;
-  }
-  if (!confirm("Supprimer cet appel ?")) return;
-  db.presences = db.presences.filter((p) => p.id !== id);
-  await syncCloud(true);
-  renderAll();
-}
-
-async function saveMateriel() {
-  const nom = document.getElementById("m_nom").value.trim();
-  const cat = document.getElementById("m_cat").value;
-  const qte = Number(document.getElementById("m_qte").value || 1);
-  const etat = document.getElementById("m_etat").value;
-  const resp = document.getElementById("m_resp").value.trim();
-
-  if (!nom || !resp) {
-    alert("Merci de renseigner le nom de l'article et le lieu / responsable.");
-    return;
-  }
-
-  db.materiel.push({
-    id: "mat_" + Date.now(),
-    nom,
-    cat,
-    qte,
-    etat,
-    resp
-  });
-
-  document.getElementById("m_nom").value = "";
-  document.getElementById("m_qte").value = "1";
-  document.getElementById("m_resp").value = "";
-
-  await syncCloud(true);
-  renderAll();
-}
-
-async function delMat(id) {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut retirer du matériel.");
-    return;
-  }
-  if (!confirm("Retirer cet article de l'inventaire ?")) return;
-  db.materiel = db.materiel.filter((m) => m.id !== id);
-  await syncCloud(true);
-  renderAll();
-}
-
-function resetChefForm() {
-  document.getElementById("c_id").value = "";
-  ["c_nom", "c_tel", "c_pin"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-  document.getElementById("c_est_tresorier").checked = false;
-}
-
-async function saveChef() {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut gérer la maîtrise.");
-    return;
-  }
-  const id = document.getElementById("c_id").value;
-  const nom = document.getElementById("c_nom").value.trim();
-  const titre = document.getElementById("c_titre").value;
-  const fonction = document.getElementById("c_fonction").value;
-  const tel = document.getElementById("c_tel").value.trim();
-  const pin = document.getElementById("c_pin").value.trim();
-  const estTresorier =
-    Boolean(document.getElementById("c_est_tresorier").checked) ||
-    fonction.toLowerCase().includes("trésorier") ||
-    fonction.toLowerCase().includes("financier");
-
-  if (!nom || !tel || pin.length !== 4) {
-    alert("Merci de saisir le nom, le téléphone et un code PIN à 4 chiffres.");
-    return;
-  }
-
-  const existing = id ? db.chefs.find((c) => c.id === id) : null;
-  const chefData = {
-    id: id || "ch_" + Date.now(),
-    nom,
-    titre,
-    fonction,
-    tel,
-    pin,
-    estTresorier,
-    cotisation: existing ? Boolean(existing.cotisation) : false
+async function saveChef(e, id) {
+  e.preventDefault();
+  const payload = {
+    id: id || uid("chef"),
+    nom: document.getElementById("ch_nom").value.trim(),
+    fonction: document.getElementById("ch_fonction").value.trim(),
+    branche: document.getElementById("ch_branche").value,
+    sexe: document.getElementById("ch_sexe").value,
+    tel: document.getElementById("ch_tel").value.trim()
   };
-
-  if (existing) {
-    db.chefs = db.chefs.map((c) => (c.id === id ? chefData : c));
+  if (id) {
+    db.chefs = db.chefs.map((c) => (c.id === id ? payload : c));
   } else {
-    db.chefs.push(chefData);
+    db.chefs.push(payload);
   }
-
-  resetChefForm();
-  populateLoginSelect();
-  await syncCloud(true);
-  renderAll();
-}
-
-function editChef(id) {
-  if (!canManageFullAdmin()) return;
-  const c = db.chefs.find((item) => item.id === id);
-  if (!c) return;
-  document.getElementById("c_id").value = c.id;
-  document.getElementById("c_nom").value = c.nom || "";
-  document.getElementById("c_titre").value = c.titre || "Micou";
-  document.getElementById("c_fonction").value = c.fonction || "Chef d'Unité (CU)";
-  document.getElementById("c_tel").value = c.tel || "";
-  document.getElementById("c_pin").value = c.pin || "";
-  document.getElementById("c_est_tresorier").checked = isChefTresorier(c);
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  closeModal();
+  await persistDb(id ? "Modification chef" : "Ajout chef", payload.nom);
 }
 
 async function deleteChef(id) {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut retirer un membre de la maîtrise.");
-    return;
-  }
-  if (!confirm("Retirer ce responsable de la maîtrise ?")) return;
+  if (!canManageStructure()) return;
+  if (!confirm("Retirer ce chef de la liste ?")) return;
   db.chefs = db.chefs.filter((c) => c.id !== id);
-  populateLoginSelect();
-  await syncCloud(true);
-  renderAll();
+  await persistDb("Suppression chef", id);
 }
 
-function getCotisationAnnuelleChefMontant(chef) {
-  const isCG =
-    chef.titre === "Groupe et ressources adultes" ||
-    chef.fonction === "Chef de Groupe";
-  return isCG ? Number(db.settings.cot_cg || 3000) : Number(db.settings.cot_cu || 2600);
-}
+/* 3. APPELS & PRÉSENCES (SIMPLIFIÉ POUR LE CU) */
+function renderQuickAppel() {
+  const br = document.getElementById("appelBrancheSelect").value;
+  const list = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
+  const container = document.getElementById("quickAppelList");
 
-function getSelectedCotMonth() {
-  const input = document.getElementById("cot_mois_cible");
-  if (input && input.value) return input.value;
-  const nowMonth = new Date().toISOString().slice(0, 7);
-  if (input) input.value = nowMonth;
-  return nowMonth;
-}
-
-function isMensuellePaid(kind, memberId, mois) {
-  const tag = `[MENS:${kind}:${memberId}:${mois}]`;
-  return db.finances.some(
-    (f) => f.type === "in" && f.cat === "Cotisation Mensuelle" && String(f.motif || "").includes(tag)
-  );
-}
-
-async function validerCotisationAnnuelleDirecte(kind, memberId) {
-  if (!canManageFinancesAndMatricules()) {
-    alert("Accès réservé au Trésorier / Financier.");
+  if (!list.length) {
+    container.innerHTML = `<p style="color:var(--muted); font-size:0.88rem;">Aucun jeune dans cette branche pour faire l'appel.</p>`;
     return;
   }
-  const today = new Date().toISOString().slice(0, 10);
 
-  if (kind === "scout") {
-    const s = db.scouts.find((x) => x.id === memberId);
-    if (!s) return;
-    if (!s.cotisation) {
-      db.scouts = db.scouts.map((x) => (x.id === memberId ? { ...x, cotisation: true } : x));
-      db.finances.push({
-        id: "fin_" + Date.now(),
-        type: "in",
-        cat: "Cotisation Annuelle",
-        montant: 2500,
-        date: today,
-        motif: `Cotisation annuelle jeune — ${s.nom} (${s.branche})`
-      });
-      await syncCloud(true);
-      renderAll();
-    }
-  } else if (kind === "chef") {
-    const c = db.chefs.find((x) => x.id === memberId);
-    if (!c) return;
-    if (!c.cotisation) {
-      const montant = getCotisationAnnuelleChefMontant(c);
-      db.chefs = db.chefs.map((x) => (x.id === memberId ? { ...x, cotisation: true } : x));
-      db.finances.push({
-        id: "fin_" + Date.now(),
-        type: "in",
-        cat: "Cotisation Annuelle",
-        montant,
-        date: today,
-        motif: `Cotisation annuelle maîtrise — ${c.nom} (${c.fonction})`
-      });
-      await syncCloud(true);
-      renderAll();
-    }
-  }
-}
-
-async function validerCotisationMensuelleDirecte(kind, memberId) {
-  if (!canManageFinancesAndMatricules()) {
-    alert("Accès réservé au Trésorier / Financier.");
-    return;
-  }
-  const mois = getSelectedCotMonth();
-  if (isMensuellePaid(kind, memberId, mois)) return;
-
-  const today = new Date().toISOString().slice(0, 10);
-  if (kind === "scout") {
-    const s = db.scouts.find((x) => x.id === memberId);
-    if (!s) return;
-    const montant = Number(db.settings.cot_mens_j || 0);
-    if (montant <= 0) {
-      alert("Définissez d'abord le montant de la cotisation mensuelle jeune ci-dessus.");
-      return;
-    }
-    db.finances.push({
-      id: "fin_" + Date.now(),
-      type: "in",
-      cat: "Cotisation Mensuelle",
-      montant,
-      date: today,
-      motif: `Cotisation mensuelle ${mois} — ${s.nom} (${s.branche}) [MENS:scout:${s.id}:${mois}]`
-    });
-  } else if (kind === "chef") {
-    const c = db.chefs.find((x) => x.id === memberId);
-    if (!c) return;
-    const montant = Number(db.settings.cot_mens_c || 0);
-    if (montant <= 0) {
-      alert("Définissez d'abord le montant de la cotisation mensuelle chef ci-dessus.");
-      return;
-    }
-    db.finances.push({
-      id: "fin_" + Date.now(),
-      type: "in",
-      cat: "Cotisation Mensuelle",
-      montant,
-      date: today,
-      motif: `Cotisation mensuelle ${mois} — ${c.nom} (${c.fonction}) [MENS:chef:${c.id}:${mois}]`
-    });
-  }
-
-  await syncCloud(true);
-  renderAll();
-}
-
-function renderCotisationsValidation() {
-  const tbody = document.getElementById("cotisationsValidationList");
-  if (!tbody) return;
-  const mois = getSelectedCotMonth();
-  const filtre = document.getElementById("cot_filtre_type")?.value || "tous";
-  const rows = [];
-
-  if (filtre === "tous" || filtre === "jeunes") {
-    const montantMensJ = Number(db.settings.cot_mens_j || 0);
-    db.scouts.forEach((s) => {
-      const annPayee = Boolean(s.cotisation);
-      const mensPayee = isMensuellePaid("scout", s.id, mois);
-      const waMensBtn = !mensPayee && s.tel
-        ? `<a href="${getWaLink(s.tel, buildMonthlyCotisationReminderMessage(s.nom, s.branche, mois, montantMensJ))}" target="_blank" class="wa-btn">📱 Relancer mensuelle</a>`
-        : "";
-
-      rows.push(`
-        <tr>
-          <td><strong>${s.nom}</strong> <small>(Jeune • ${s.branche})</small></td>
-          <td>${annPayee ? `<span class="status-dot status-green"></span> Payée (2 500 FCFA)` : `<span class="status-dot status-red"></span> Non payée (2 500 FCFA)`}</td>
-          <td>${mensPayee ? `<span class="status-dot status-green"></span> Payée (${mois})` : `<span class="status-dot status-red"></span> Non payée (${mois})`}</td>
-          <td style="display:flex; gap:6px; flex-wrap:wrap;">
-            ${!annPayee ? `<button class="btn btn-success" onclick="validerCotisationAnnuelleDirecte('scout','${s.id}')">Valider Annuelle</button>` : ""}
-            ${!mensPayee ? `<button class="btn btn-main" style="width:auto; margin-top:0;" onclick="validerCotisationMensuelleDirecte('scout','${s.id}')">Valider Mensuelle</button>` : ""}
-            ${waMensBtn}
-          </td>
-        </tr>
-      `);
-    });
-  }
-
-  if (filtre === "tous" || filtre === "chefs") {
-    const montantMensC = Number(db.settings.cot_mens_c || 0);
-    db.chefs.forEach((c) => {
-      const montantAnn = getCotisationAnnuelleChefMontant(c);
-      const annPayee = Boolean(c.cotisation);
-      const mensPayee = isMensuellePaid("chef", c.id, mois);
-      const waMensBtn = !mensPayee && c.tel
-        ? `<a href="${getWaLink(c.tel, buildMonthlyCotisationReminderMessage(c.nom, c.titre || c.fonction, mois, montantMensC))}" target="_blank" class="wa-btn">📱 Relancer mensuelle</a>`
-        : "";
-
-      rows.push(`
-        <tr>
-          <td><strong>${c.nom}</strong> <small>(Maîtrise • ${c.fonction})</small></td>
-          <td>${annPayee ? `<span class="status-dot status-green"></span> Payée (${fPrix(montantAnn)})` : `<span class="status-dot status-red"></span> Non payée (${fPrix(montantAnn)})`}</td>
-          <td>${mensPayee ? `<span class="status-dot status-green"></span> Payée (${mois})` : `<span class="status-dot status-red"></span> Non payée (${mois})`}</td>
-          <td style="display:flex; gap:6px; flex-wrap:wrap;">
-            ${!annPayee ? `<button class="btn btn-success" onclick="validerCotisationAnnuelleDirecte('chef','${c.id}')">Valider Annuelle</button>` : ""}
-            ${!mensPayee ? `<button class="btn btn-main" style="width:auto; margin-top:0;" onclick="validerCotisationMensuelleDirecte('chef','${c.id}')">Valider Mensuelle</button>` : ""}
-            ${waMensBtn}
-          </td>
-        </tr>
-      `);
-    });
-  }
-
-  tbody.innerHTML = rows.join("") || "<tr><td colspan='4'>Aucun membre à afficher.</td></tr>";
-}
-
-function getSelectedPointMonth() {
-  const input = document.getElementById("f_point_mois");
-  if (input && input.value) return input.value;
-  const nowMonth = new Date().toISOString().slice(0, 7);
-  if (input) input.value = nowMonth;
-  return nowMonth;
-}
-
-function getFinancesForMonth(mois) {
-  return db.finances.filter((f) => String(f.date || "").startsWith(mois));
-}
-
-function renderPointMensuel() {
-  const tbody = document.getElementById("pointMensuelList");
-  if (!tbody) return;
-
-  const mois = getSelectedPointMonth();
-  const ops = [...getFinancesForMonth(mois)].sort((a, b) =>
-    String(b.date || "").localeCompare(String(a.date || ""))
-  );
-
-  let mIn = 0;
-  let mOut = 0;
-  ops.forEach((f) => {
-    const amt = Number(f.montant || 0);
-    if (f.type === "in") mIn += amt;
-    else mOut += amt;
+  list.forEach((s) => {
+    if (!quickAppelStates[s.id]) quickAppelStates[s.id] = "Présent";
   });
 
-  const jeunesMensOk = db.scouts.filter((s) => isMensuellePaid("scout", s.id, mois)).length;
-  const chefsMensOk = db.chefs.filter((c) => isMensuellePaid("chef", c.id, mois)).length;
-
-  const elIn = document.getElementById("pm_in");
-  const elOut = document.getElementById("pm_out");
-  const elSolde = document.getElementById("pm_solde");
-  const elCotis = document.getElementById("pm_cotis");
-
-  if (elIn) elIn.textContent = fPrix(mIn);
-  if (elOut) elOut.textContent = fPrix(mOut);
-  if (elSolde) {
-    elSolde.textContent = fPrix(mIn - mOut);
-    elSolde.style.color = mIn - mOut >= 0 ? "#27ae60" : "#c0392b";
-  }
-  if (elCotis) {
-    elCotis.textContent = `Jeunes : ${jeunesMensOk}/${db.scouts.length} • Chefs : ${chefsMensOk}/${db.chefs.length}`;
-  }
-
-  tbody.innerHTML =
-    ops
-      .map((f) => {
-        const amt = Number(f.montant || 0);
-        const cls = f.type === "in" ? "td-entree" : "td-sortie";
-        const sign = f.type === "in" ? "+" : "-";
-        return `
-          <tr>
-            <td>${f.date || "-"}</td>
-            <td class="${cls}">${f.type === "in" ? "Entrée" : "Sortie"}</td>
-            <td>${f.cat || "-"}</td>
-            <td>${f.motif || "-"}</td>
-            <td class="${cls}">${sign} ${fPrix(amt)}</td>
-          </tr>
-        `;
-      })
-      .join("") || "<tr><td colspan='5'>Aucune opération enregistrée pour ce mois.</td></tr>";
+  container.innerHTML = list.map((s) => {
+    const st = quickAppelStates[s.id];
+    return `
+      <div class="appel-row">
+        <div>
+          <strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong>
+          <span class="badge badge-gray" style="margin-left:6px;">${escapeHtml(s.branche)}</span>
+        </div>
+        <div class="appel-toggle">
+          <button type="button" class="btn btn-sm ${st === "Présent" ? "btn-success" : "btn-secondary"}" onclick="setAppelState('${s.id}', 'Présent')">Présent</button>
+          <button type="button" class="btn btn-sm ${st === "Absent" ? "btn-danger" : "btn-secondary"}" onclick="setAppelState('${s.id}', 'Absent')">Absent</button>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
-function printPointMensuel() {
-  const mois = getSelectedPointMonth();
-  const ops = [...getFinancesForMonth(mois)].sort((a, b) =>
-    String(a.date || "").localeCompare(String(b.date || ""))
-  );
-
-  let mIn = 0;
-  let mOut = 0;
-  const rows = ops.map((f) => {
-    const amt = Number(f.montant || 0);
-    if (f.type === "in") mIn += amt;
-    else mOut += amt;
-    const sign = f.type === "in" ? "+" : "-";
-    return `<tr><td>${f.date || "-"}</td><td>${f.type === "in" ? "Entrée" : "Sortie"}</td><td>${f.cat || "-"}</td><td>${f.motif || "-"}</td><td>${sign} ${fPrix(amt)}</td></tr>`;
-  });
-
-  const jeunesMensOk = db.scouts.filter((s) => isMensuellePaid("scout", s.id, mois)).length;
-  const chefsMensOk = db.chefs.filter((c) => isMensuellePaid("chef", c.id, mois)).length;
-
-  document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Point Mensuel des Finances", `Période : ${mois}`)}
-    <p><strong>Entrées du mois :</strong> ${fPrix(mIn)} | <strong>Sorties du mois :</strong> ${fPrix(mOut)} | <strong>Solde net :</strong> ${fPrix(mIn - mOut)}</p>
-    <p style="margin-top:6px;"><strong>Cotisations mensuelles payées :</strong> Jeunes : ${jeunesMensOk} / ${db.scouts.length} | Maîtrise : ${chefsMensOk} / ${db.chefs.length}</p>
-    <table>
-      <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead>
-      <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération pour ce mois.</td></tr>"}</tbody>
-    </table>
-    ${renderCachetCG(true)}
-  `;
-  window.print();
+function setAppelState(scoutId, state) {
+  quickAppelStates[scoutId] = state;
+  renderQuickAppel();
 }
 
-function checkCotisation() {
-  const cat = document.getElementById("f_cat").value;
-  const linkBox = document.getElementById("f_scout_link");
-  const select = document.getElementById("f_scout_select");
-  const matBox = document.getElementById("f_matricule_box");
-  if (cat === "Cotisation Annuelle" || cat === "Cotisation Mensuelle") {
-    linkBox.style.display = "block";
-    const options = ['<option value="">Sélectionner le membre qui vient de payer...</option>'];
-    db.scouts.forEach((s) => {
-      options.push(`<option value="scout:${s.id}">Jeune : ${s.nom} (${s.branche})</option>`);
-    });
-    db.chefs.forEach((c) => {
-      options.push(`<option value="chef:${c.id}">Chef : ${c.nom} (${c.titre})</option>`);
-    });
-    select.innerHTML = options.join("");
-    matBox.style.display = cat === "Cotisation Annuelle" ? "block" : "none";
-  } else {
-    linkBox.style.display = "none";
-    matBox.style.display = "none";
-  }
+function markAllAppel(state) {
+  const br = document.getElementById("appelBrancheSelect").value;
+  db.scouts
+    .filter((s) => br === "Toutes" || s.branche === br)
+    .forEach((s) => { quickAppelStates[s.id] = state; });
+  renderQuickAppel();
 }
 
-async function saveTarifsFinancier() {
-  if (!canManageFinancesAndMatricules()) {
-    alert("Accès réservé au Trésorier / Financier.");
-    return;
-  }
-  db.settings.cot_mens_j = Number(document.getElementById("fin_cot_mens_j").value || 0);
-  db.settings.cot_mens_c = Number(document.getElementById("fin_cot_mens_c").value || 0);
-  await syncCloud(true);
-  renderAll();
-  alert("Cotisations mensuelles enregistrées.");
-}
+async function saveQuickAppel() {
+  const br = document.getElementById("appelBrancheSelect").value;
+  const date = document.getElementById("appelDateInput").value || new Date().toISOString().slice(0, 10);
+  const theme = document.getElementById("appelThemeInput").value.trim() || "Réunion d'unité";
+  const targets = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
 
-async function assignScoutMatricule(scoutId) {
-  if (!canManageFinancesAndMatricules()) {
-    alert("Seul le Financier / Trésorier peut attribuer ou modifier un matricule ASCCI.");
-    return;
-  }
-  const scout = db.scouts.find((s) => s.id === scoutId);
-  if (!scout) return;
-  if (!scout.cotisation) {
-    alert("La cotisation annuelle du jeune doit d'abord être payée avant d'attribuer son matricule ASCCI.");
-    return;
-  }
-  const input = document.getElementById("mat_input_" + scoutId);
-  const newMat = input ? input.value.trim() : "";
-  if (!newMat) {
-    alert("Merci de saisir le numéro de matricule ASCCI.");
+  if (!targets.length) {
+    alert("Aucun jeune à enregistrer.");
     return;
   }
 
-  db.scouts = db.scouts.map((s) => (s.id === scoutId ? { ...s, mat: newMat } : s));
-  await syncCloud(true);
-  renderAll();
-  alert(`Matricule ASCCI attribué à ${scout.nom} : ${newMat}`);
-}
+  const presents = targets.filter((s) => (quickAppelStates[s.id] || "Présent") === "Présent").map((s) => s.id);
+  const absents = targets.filter((s) => quickAppelStates[s.id] === "Absent").map((s) => s.id);
 
-async function saveFinance() {
-  if (!canManageFinancesAndMatricules()) {
-    alert("Accès réservé au Trésorier / Financier.");
-    return;
-  }
-  const type = document.getElementById("f_type").value;
-  const cat = document.getElementById("f_cat").value;
-  const montant = Number(document.getElementById("f_montant").value || 0);
-  const date = document.getElementById("f_date").value || new Date().toISOString().slice(0, 10);
-  const motif = document.getElementById("f_motif").value.trim();
-  const linked = document.getElementById("f_scout_select").value;
-  const newMat = (document.getElementById("f_new_matricule")?.value || "").trim();
-
-  if (!montant || montant <= 0 || !motif) {
-    alert("Merci d'indiquer un montant supérieur à 0 et un motif.");
-    return;
-  }
-
-  let finalMotif = motif;
-  if (type === "in" && cat === "Cotisation Mensuelle" && linked) {
-    const [kind, targetId] = linked.split(":");
-    const mois = String(date).slice(0, 7);
-    finalMotif = `${motif} [MENS:${kind}:${targetId}:${mois}]`;
-  }
-
-  db.finances.push({
-    id: "fin_" + Date.now(),
-    type,
-    cat,
-    montant,
+  db.presences.unshift({
+    id: uid("pres"),
     date,
-    motif: finalMotif
+    branche: br,
+    theme,
+    presents,
+    absents
   });
 
-  if (type === "in" && cat === "Cotisation Annuelle" && linked) {
-    const [kind, targetId] = linked.split(":");
-    if (kind === "scout") {
-      db.scouts = db.scouts.map((s) =>
-        s.id === targetId ? { ...s, cotisation: true, mat: newMat || s.mat || "" } : s
-      );
-    } else if (kind === "chef") {
-      db.chefs = db.chefs.map((c) => (c.id === targetId ? { ...c, cotisation: true } : c));
-    }
-  }
-
-  document.getElementById("f_montant").value = "";
-  document.getElementById("f_motif").value = "";
-  if (document.getElementById("f_new_matricule")) {
-    document.getElementById("f_new_matricule").value = "";
-  }
-
-  await syncCloud(true);
-  renderAll();
+  document.getElementById("appelThemeInput").value = "";
+  await persistDb("Enregistrement appel", `${br} — ${date} (${presents.length} présents)`);
+  alert("Appel enregistré !");
 }
 
-async function delFin(id) {
-  if (!canManageFinancesAndMatricules()) {
-    alert("Accès réservé au Trésorier / Financier.");
+function renderPresencesHistory() {
+  const tbody = document.getElementById("presencesHistoryBody");
+  const list = isCU() && currentUser.branche
+    ? db.presences.filter((p) => p.branche === currentUser.branche || p.branche === "Toutes")
+    : db.presences;
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucun appel enregistré.</td></tr>`;
     return;
   }
-  if (!confirm("Supprimer cette opération financière ?")) return;
-  db.finances = db.finances.filter((f) => f.id !== id);
-  await syncCloud(true);
-  renderAll();
+
+  tbody.innerHTML = list.map((p) => `
+    <tr>
+      <td>${escapeHtml(p.date)}</td>
+      <td>${escapeHtml(p.branche)}</td>
+      <td>${escapeHtml(p.theme)}</td>
+      <td><span class="badge badge-green">${(p.presents || []).length}</span></td>
+      <td><span class="badge badge-red">${(p.absents || []).length}</span></td>
+      <td>
+        ${canManageStructure() ? `<button type="button" class="btn btn-sm btn-danger" onclick="deletePresence('${p.id}')">Suppr.</button>` : "-"}
+      </td>
+    </tr>
+  `).join("");
 }
 
-function printCaisse() {
-  const totalAscci = db.scouts.filter((s) => s.cotisation).length * 2085;
-  const totalGroupePart = db.scouts.filter((s) => s.cotisation).length * 415;
+async function deletePresence(id) {
+  if (!canManageStructure()) return;
+  db.presences = db.presences.filter((p) => p.id !== id);
+  await persistDb("Suppression appel", id);
+}
 
-  const rows = [...db.finances]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .map((f) => {
-      const sign = f.type === "in" ? "+" : "-";
-      const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && Number(f.montant) === 2500;
-      const motifDetail = isCotiJeune
-        ? `${f.motif} <br><small>(Répartition : 2 085 FCFA ASCCI + 415 FCFA Caisse Groupe)</small>`
-        : f.motif;
-      return `<tr><td>${f.date}</td><td>${f.type.toUpperCase()}</td><td>${f.cat}</td><td>${motifDetail}</td><td>${sign} ${fPrix(f.montant)}</td></tr>`;
-    });
+/* 4. ACTIVITÉS DE MAÎTRISE (CG SEUL, CU SEUL, TOUS LES CHEFS) */
+function renderActivites() {
+  const cibleFilter = document.getElementById("filterActiviteCible").value;
+  let list = getScopedActivites();
+  if (cibleFilter !== "all") {
+    list = list.filter((a) => a.cible === cibleFilter);
+  }
 
-  document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Livre de Caisse", "Bilan financier du groupe")}
-    <p>Entrées : ${document.getElementById("f_tot_in").textContent} | Sorties : ${document.getElementById("f_tot_out").textContent} | Solde : ${document.getElementById("f_solde").textContent}</p>
-    <p style="margin-top:6px;"><strong>Ventilation cotisations annuelles jeunes payées :</strong> Part ASCCI : ${fPrix(totalAscci)} | Part Caisse Groupe : ${fPrix(totalGroupePart)}</p>
-    <table>
-      <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead>
-      <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération.</td></tr>"}</tbody>
-    </table>
-    ${renderCachetCG(true)}
+  const labels = {
+    cg_only: `<span class="badge badge-purple">CG uniquement</span>`,
+    cu_only: `<span class="badge badge-amber">CU uniquement</span>`,
+    tous_chefs: `<span class="badge badge-green">Tous les chefs</span>`
+  };
+
+  const tbody = document.getElementById("activitesTableBody");
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucune activité de maîtrise à afficher.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map((a) => `
+    <tr>
+      <td>${escapeHtml(a.date || "-")}</td>
+      <td><strong>${escapeHtml(a.titre)}</strong></td>
+      <td>${labels[a.cible] || escapeHtml(a.cible)}</td>
+      <td>${escapeHtml(a.notes || "-")}</td>
+      <td>
+        ${canManageStructure() ? `
+          <button type="button" class="btn btn-sm btn-secondary" onclick="openActiviteModal('${a.id}')">Modifier</button>
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteActivite('${a.id}')">Suppr.</button>
+        ` : `<span class="badge badge-gray">Lecture</span>`}
+      </td>
+    </tr>
+  `).join("");
+}
+
+function openActiviteModal(id = null) {
+  if (!canManageStructure()) return;
+  const existing = id ? db.activites.find((a) => a.id === id) : null;
+  openModal(existing ? "Modifier l'activité de maîtrise" : "Nouvelle activité de maîtrise", `
+    <form onsubmit="saveActivite(event, '${existing ? existing.id : ""}')">
+      <div class="form-group">
+        <label>Titre de la réunion / formation *</label>
+        <input type="text" id="act_titre" value="${escapeHtml(existing ? existing.titre : "")}" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="act_date" value="${escapeHtml(existing ? existing.date : new Date().toISOString().slice(0, 10))}">
+        </div>
+        <div class="form-group">
+          <label>Public concerné *</label>
+          <select id="act_cible">
+            <option value="tous_chefs" ${!existing || existing.cible === "tous_chefs" ? "selected" : ""}>Tous les chefs</option>
+            <option value="cu_only" ${existing && existing.cible === "cu_only" ? "selected" : ""}>CU uniquement</option>
+            <option value="cg_only" ${existing && existing.cible === "cg_only" ? "selected" : ""}>CG uniquement</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Lieu / Ordre du jour / Notes</label>
+        <textarea id="act_notes">${escapeHtml(existing ? existing.notes : "")}</textarea>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
+}
+
+async function saveActivite(e, id) {
+  e.preventDefault();
+  if (!canManageStructure()) return;
+  const payload = {
+    id: id || uid("act"),
+    titre: document.getElementById("act_titre").value.trim(),
+    date: document.getElementById("act_date").value,
+    cible: document.getElementById("act_cible").value,
+    notes: document.getElementById("act_notes").value.trim()
+  };
+  if (id) {
+    db.activites = db.activites.map((a) => (a.id === id ? payload : a));
+  } else {
+    db.activites.unshift(payload);
+  }
+  closeModal();
+  await persistDb(id ? "Modification activité maîtrise" : "Création activité maîtrise", payload.titre);
+}
+
+async function deleteActivite(id) {
+  if (!canManageStructure()) return;
+  db.activites = db.activites.filter((a) => a.id !== id);
+  await persistDb("Suppression activité maîtrise", id);
+}
+
+/* 5. CAMPS & AUTORISATION PARENTALE */
+function renderCamps() {
+  const scope = document.getElementById("filterCampScope").value;
+  let list = getScopedCamps();
+  if (scope !== "all") {
+    list = list.filter((c) => c.type === scope);
+  }
+
+  const tbody = document.getElementById("campsTableBody");
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucun camp visible sur votre périmètre.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map((c) => {
+    const supLabel = c.type === "branche"
+      ? `Superviseurs branche (${escapeHtml(c.branche || "")})`
+      : "Superviseurs du groupe";
+    return `
+      <tr>
+        <td><strong>${escapeHtml(c.nom)}</strong></td>
+        <td>
+          <span class="badge badge-blue">${escapeHtml(c.type)}</span>
+          ${c.branche ? `<span class="badge badge-gray">${escapeHtml(c.branche)}</span>` : ""}
+        </td>
+        <td>${escapeHtml(c.dates || "-")}<br><small>${escapeHtml(c.lieu || "")}</small></td>
+        <td>${supLabel}<br><small>${escapeHtml(c.superviseurs || "Chefs désignés")}</small></td>
+        <td>${formatMoney(c.frais || 0)}</td>
+        <td>
+          <div class="actions-row">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="printAutorisationCamp('${c.id}')">📄 Autorisation</button>
+            ${canManageStructure() ? `
+              <button type="button" class="btn btn-sm btn-secondary" onclick="openCampModal('${c.id}')">Modifier</button>
+              <button type="button" class="btn btn-sm btn-danger" onclick="deleteCamp('${c.id}')">Suppr.</button>
+            ` : ""}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function openCampModal(id = null) {
+  if (!canManageStructure()) return;
+  const existing = id ? db.camps.find((c) => c.id === id) : null;
+  openModal(existing ? "Modifier le camp" : "Nouveau camp", `
+    <form onsubmit="saveCamp(event, '${existing ? existing.id : ""}')">
+      <div class="form-group">
+        <label>Nom du camp *</label>
+        <input type="text" id="cp_nom" value="${escapeHtml(existing ? existing.nom : "")}" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type de camp</label>
+          <select id="cp_type" onchange="toggleCampBrancheInput()">
+            <option value="branche" ${!existing || existing.type === "branche" ? "selected" : ""}>Camp de branche</option>
+            <option value="groupe" ${existing && existing.type === "groupe" ? "selected" : ""}>Camp de groupe</option>
+            <option value="national" ${existing && existing.type === "national" ? "selected" : ""}>Camp national</option>
+          </select>
+        </div>
+        <div class="form-group" id="cp_branche_wrap">
+          <label>Branche concernée</label>
+          <select id="cp_branche">
+            ${BRANCHES.map((b) => `<option value="${b}" ${existing && existing.branche === b ? "selected" : ""}>${b}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Participation / Frais (FCFA)</label>
+          <input type="number" id="cp_frais" min="0" value="${existing ? Number(existing.frais || 0) : 0}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Dates</label>
+          <input type="text" id="cp_dates" value="${escapeHtml(existing ? existing.dates : "")}" placeholder="Ex: 12 au 15 août">
+        </div>
+        <div class="form-group">
+          <label>Lieu</label>
+          <input type="text" id="cp_lieu" value="${escapeHtml(existing ? existing.lieu : "")}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Chefs superviseurs</label>
+        <input type="text" id="cp_superviseurs" value="${escapeHtml(existing ? existing.superviseurs : "")}" placeholder="Noms des chefs superviseurs">
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
+  toggleCampBrancheInput();
+}
+
+function toggleCampBrancheInput() {
+  const type = document.getElementById("cp_type").value;
+  const wrap = document.getElementById("cp_branche_wrap");
+  if (wrap) wrap.style.display = type === "branche" ? "block" : "none";
+}
+
+async function saveCamp(e, id) {
+  e.preventDefault();
+  if (!canManageStructure()) return;
+  const type = document.getElementById("cp_type").value;
+  const payload = {
+    id: id || uid("camp"),
+    nom: document.getElementById("cp_nom").value.trim(),
+    type,
+    branche: type === "branche" ? document.getElementById("cp_branche").value : "",
+    frais: Number(document.getElementById("cp_frais").value || 0),
+    dates: document.getElementById("cp_dates").value.trim(),
+    lieu: document.getElementById("cp_lieu").value.trim(),
+    superviseurs: document.getElementById("cp_superviseurs").value.trim()
+  };
+  if (id) {
+    db.camps = db.camps.map((c) => (c.id === id ? payload : c));
+  } else {
+    db.camps.unshift(payload);
+  }
+  closeModal();
+  await persistDb(id ? "Modification camp" : "Création camp", payload.nom);
+}
+
+async function deleteCamp(id) {
+  if (!canManageStructure()) return;
+  db.camps = db.camps.filter((c) => c.id !== id);
+  await persistDb("Suppression camp", id);
+}
+
+function printAutorisationCamp(campId) {
+  const camp = db.camps.find((c) => c.id === campId);
+  if (!camp) return;
+  const pz = document.getElementById("printZone");
+  pz.innerHTML = `
+    <div style="font-family:sans-serif; padding:16px;">
+      <h2>AUTORISATION PARENTALE DE CAMP — GROUPE OBION</h2>
+      <p style="margin:12px 0;">Je soussigné(e), parent / tuteur légal, autorise mon enfant à participer au camp :</p>
+      <p><strong>Camp :</strong> ${escapeHtml(camp.nom)}</p>
+      <p><strong>Type / Branche :</strong> ${escapeHtml(camp.type)} ${camp.branche ? "— " + escapeHtml(camp.branche) : ""}</p>
+      <p><strong>Dates :</strong> ${escapeHtml(camp.dates || "À préciser")}</p>
+      <p><strong>Lieu :</strong> ${escapeHtml(camp.lieu || "À préciser")}</p>
+      <p><strong>Supervision :</strong> ${escapeHtml(camp.superviseurs || "Chefs du Groupe OBION")}</p>
+      <div style="margin-top:36px; display:flex; justify-content:space-between;">
+        <div>Signature du parent / tuteur</div>
+        <div>Pour le Groupe OBION : ${escapeHtml(db.settings.cg_nom || "Chef de Groupe")}</div>
+      </div>
+    </div>
   `;
   window.print();
 }
 
-async function saveSettings() {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut modifier les paramètres généraux.");
-    return;
-  }
-  db.settings.cg_nom = document.getElementById("cfg_cg_nom").value.trim() || "Chef de Groupe Obion";
-  db.settings.cg_tel = document.getElementById("cfg_cg_tel").value.trim();
-  db.settings.logo_app = document.getElementById("cfg_logo_app").value.trim() || "logo-app.jpg";
-  db.settings.logo_district = document.getElementById("cfg_logo_district").value.trim() || "logo-district.jpg";
-  db.settings.logo_groupe = document.getElementById("cfg_logo_groupe").value.trim() || "logo.jpg";
-  db.settings.cachet_actif = Boolean(document.getElementById("cfg_cachet_actif").checked);
-  db.settings.cot_j_total = 2500;
-  db.settings.cot_j_ascci = 2085;
-  db.settings.cot_j_groupe = 415;
-  db.settings.cot_cu = Number(document.getElementById("cfg_cot_cu").value || 2600);
-  db.settings.cot_cg = Number(document.getElementById("cfg_cot_cg").value || 3000);
-  applyAppAndBrandLogos();
-  await syncCloud(true);
-  renderAll();
-  alert("Paramètres du groupe enregistrés.");
-}
-
-async function saveProgSettings() {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut modifier les progressions.");
-    return;
-  }
-  db.settings.prog = {
-    Oisillon: document.getElementById("cfg_prog_oisillon").value.trim(),
-    Meute: document.getElementById("cfg_prog_meute").value.trim(),
-    Troupe: document.getElementById("cfg_prog_troupe").value.trim(),
-    Chemin: document.getElementById("cfg_prog_chemin").value.trim(),
-    Route: document.getElementById("cfg_prog_route").value.trim()
-  };
-  await syncCloud(true);
-  renderAll();
-  alert("Progressions ASCCI mises à jour.");
-}
-
-async function cloturerAnnee() {
-  if (!canManageFullAdmin()) {
-    alert("Seul le Chef de Groupe peut clôturer l'année.");
-    return;
-  }
-  if (!confirm("Remettre toutes les cotisations annuelles (jeunes et chefs) à Impayé pour la nouvelle année ?")) return;
-  db.scouts = db.scouts.map((s) => ({ ...s, cotisation: false }));
-  db.chefs = db.chefs.map((c) => ({ ...c, cotisation: false }));
-  await syncCloud(true);
-  renderAll();
-  alert("Nouvelle année préparée : cotisations remises à Impayé.");
-}
-
-function renderSettingsInputs() {
-  if (!currentUser || !canManageFullAdmin()) return;
-  document.getElementById("cfg_cg_nom").value = db.settings.cg_nom || "";
-  document.getElementById("cfg_cg_tel").value = db.settings.cg_tel || "";
-  document.getElementById("cfg_logo_app").value = db.settings.logo_app || "logo-app.jpg";
-  document.getElementById("cfg_logo_district").value = db.settings.logo_district || "logo-district.jpg";
-  document.getElementById("cfg_logo_groupe").value = db.settings.logo_groupe || "logo.jpg";
-  document.getElementById("cfg_cachet_actif").checked = db.settings.cachet_actif !== false;
-  document.getElementById("cfg_cot_cu").value = db.settings.cot_cu || 2600;
-  document.getElementById("cfg_cot_cg").value = db.settings.cot_cg || 3000;
-  document.getElementById("cfg_prog_oisillon").value = db.settings.prog.Oisillon || "";
-  document.getElementById("cfg_prog_meute").value = db.settings.prog.Meute || "";
-  document.getElementById("cfg_prog_troupe").value = db.settings.prog.Troupe || "";
-  document.getElementById("cfg_prog_chemin").value = db.settings.prog.Chemin || "";
-  document.getElementById("cfg_prog_route").value = db.settings.prog.Route || "";
-}
-
-function renderScouts() {
-  const listEl = document.getElementById("scoutList");
-  if (!listEl || !currentUser) return;
-  const q = (document.getElementById("searchScout")?.value || "").toLowerCase().trim();
-  const filterBranche = currentUser.hasOverview
-    ? (document.getElementById("filterScout")?.value || "Tous")
-    : currentUser.brancheAutorisee;
-
-  const filtered = db.scouts.filter((s) => {
-    const matchBranch = filterBranche === "Tous" || s.branche === filterBranche;
-    const matchName = !q || String(s.nom || "").toLowerCase().includes(q);
-    return matchBranch && matchName;
-  });
-
-  if (filtered.length === 0) {
-    listEl.innerHTML = "<div class='card'><p>Aucun dossier jeune trouvé.</p></div>";
-    return;
-  }
-
-  const branchClassMap = {
-    Oisillon: "b-Oisillon",
-    Meute: "b-Meute",
-    Troupe: "b-Troupe",
-    Chemin: "b-Chemin",
-    Route: "b-Route"
-  };
-
-  listEl.innerHTML = filtered
-    .map((s) => {
-      const waBtn = !s.cotisation && s.tel
-        ? `<a href="${getWaLink(s.tel, buildCotisationReminderMessage(s))}" target="_blank" class="wa-btn">📱 Relancer (2 500 FCFA)</a>`
-        : "";
-      const cotiStatus = s.cotisation
-        ? `<span class="status-dot status-green"></span> Cotisation annuelle : À jour`
-        : `<span class="status-dot status-red"></span> Cotisation annuelle : Impayé ${waBtn}`;
-      const matDisplay = s.mat
-        ? `<strong>Matricule ASCCI :</strong> ${s.mat}`
-        : `<strong>Matricule ASCCI :</strong> <span style="color:#888;">${s.cotisation ? "En attente d'attribution (Financier)" : "Après paiement annuel"}</span>`;
-      const absCount = getAbsenceCountForScout(s.nom, s.branche);
-      const parrainLine = s.parrain
-        ? `<p><strong>Parrain :</strong> ${s.parrain}${s.parrain_tel ? ` (${s.parrain_tel})` : ""}</p>`
-        : "";
-
-      return `
-        <div class="item-card ${branchClassMap[s.branche] || ""}">
-          <span class="b-badge">${s.branche}</span>
-          <h3>${s.nom}</h3>
-          <p>${matDisplay} | <strong>Unité :</strong> ${s.sousunite || "Non précisée"}</p>
-          <p><strong>Parent :</strong> ${s.tel || "-"} | <strong>Sang :</strong> ${s.sang || "Inconnu"}</p>
-          ${parrainLine}
-          <p><strong>Absences enregistrées :</strong> ${absCount}</p>
-          <p style="margin-top:6px;">${cotiStatus}</p>
-          <div class="item-actions no-print">
-            <button class="btn btn-edit" onclick="editScout('${s.id}')">✏️ Modifier</button>
-            <button class="btn btn-secondary" onclick="openAutoConfig('scout', '${s.id}')">📄 Autorisation</button>
-            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="deleteScout('${s.id}')">❌ Supprimer</button>` : ""}
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-}
-
+/* 6. PÉDAGOGIE */
 function renderPedagogie() {
-  const tbody = document.getElementById("pedaList");
-  if (!tbody || !currentUser) return;
-  const filterBranche = currentUser.hasOverview
-    ? (document.getElementById("filterPeda")?.value || "Toutes")
-    : currentUser.brancheAutorisee;
+  const br = document.getElementById("pedagoBrancheSelect").value;
+  const refBox = document.getElementById("pedagoReferentielBox");
 
-  const filtered = db.scouts.filter(
-    (s) => filterBranche === "Toutes" || filterBranche === "Vue Globale" || s.branche === filterBranche
-  );
+  if (br && br !== "Toutes" && db.settings.prog && db.settings.prog[br]) {
+    refBox.innerHTML = `<strong>Référentiel ${escapeHtml(br)} :</strong> ${escapeHtml(db.settings.prog[br])}`;
+  } else {
+    refBox.innerHTML = Object.entries(db.settings.prog || {})
+      .map(([k, v]) => `<div><strong>${escapeHtml(k)} :</strong> ${escapeHtml(v)}</div>`)
+      .join("");
+  }
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = "<tr><td colspan='6'>Aucun jeune à afficher.</td></tr>";
+  let list = getScopedScouts();
+  if (br && br !== "Toutes") {
+    list = list.filter((s) => s.branche === br);
+  }
+
+  const tbody = document.getElementById("pedagoTableBody");
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun jeune à afficher.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = filtered
-    .map((s) => {
-      const etapes = getEtapesBranche(s.branche);
-      const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
-      const pct = Math.round((valid.length / Math.max(1, etapes.length)) * 100);
-      const nextIdx = etapes.findIndex((_, i) => !valid.includes(i));
-      const objectif = nextIdx === -1 ? "Validé" : etapes[nextIdx];
-
-      return `
-        <tr>
-          <td>${s.mat || "<small style='color:#888;'>En attente</small>"}</td>
-          <td><strong>${s.nom}</strong><br><small>${s.branche}</small></td>
-          <td>${s.totem || "-"}</td>
-          <td style="min-width:150px;">
-            <small>${pct}% (${valid.length}/${etapes.length})</small>
-            <div class="progress-bg"><div class="progress-bar" style="width:${pct}%;"></div></div>
-          </td>
-          <td>${objectif}</td>
-          <td><button class="btn btn-success" onclick="openPedaModal('${s.id}')">🎓 Suivre</button></td>
-        </tr>
-      `;
-    })
-    .join("");
+  tbody.innerHTML = list.map((s) => `
+    <tr>
+      <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
+      <td>${escapeHtml(s.branche)}</td>
+      <td><span class="badge badge-green">${escapeHtml(s.etape_pedago || "Début")}</span></td>
+      <td>${escapeHtml(s.notes_pedago || "-")}</td>
+      <td><button type="button" class="btn btn-sm btn-secondary" onclick="openPedagoModal('${s.id}')">Mettre à jour</button></td>
+    </tr>
+  `).join("");
 }
 
-function renderCamps() {
-  const listEl = document.getElementById("campList");
-  if (!listEl || !currentUser) return;
-  const visibleCamps = db.camps.filter(
-    (c) => currentUser.hasOverview || c.branche === "Toutes" || c.branche === currentUser.brancheAutorisee
-  );
+function openPedagoModal(scoutId) {
+  const s = db.scouts.find((x) => x.id === scoutId);
+  if (!s) return;
+  openModal(`Progression pédagogique — ${s.nom} ${s.prenom}`, `
+    <form onsubmit="savePedago(event, '${s.id}')">
+      <div class="form-group">
+        <label>Étape / Badge / Progression</label>
+        <input type="text" id="pd_etape" value="${escapeHtml(s.etape_pedago || "")}">
+      </div>
+      <div class="form-group">
+        <label>Observations / Notes</label>
+        <textarea id="pd_notes">${escapeHtml(s.notes_pedago || "")}</textarea>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
+}
 
-  if (visibleCamps.length === 0) {
-    listEl.innerHTML = "<div class='card'><p>Aucun camp ou week-end planifié.</p></div>";
+async function savePedago(e, scoutId) {
+  e.preventDefault();
+  db.scouts = db.scouts.map((s) => s.id === scoutId ? {
+    ...s,
+    etape_pedago: document.getElementById("pd_etape").value.trim(),
+    notes_pedago: document.getElementById("pd_notes").value.trim()
+  } : s);
+  closeModal();
+  await persistDb("Mise à jour pédagogie", scoutId);
+}
+
+/* 7. MATÉRIEL */
+function renderMateriel() {
+  const tbody = document.getElementById("materielTableBody");
+  if (!db.materiel.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun matériel enregistré.</td></tr>`;
     return;
   }
+  tbody.innerHTML = db.materiel.map((m) => `
+    <tr>
+      <td><strong>${escapeHtml(m.nom)}</strong></td>
+      <td>${Number(m.quantite || 0)}</td>
+      <td>${escapeHtml(m.etat || "Bon")}</td>
+      <td>${escapeHtml(m.affectation || "Groupe")}</td>
+      <td>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="openMaterielModal('${m.id}')">Modifier</button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="deleteMateriel('${m.id}')">Suppr.</button>
+      </td>
+    </tr>
+  `).join("");
+}
 
-  listEl.innerHTML = visibleCamps
-    .map((c) => {
-      const partList = Array.isArray(c.participants) ? c.participants : [];
-      const totalPaye = partList.reduce((acc, p) => acc + Number(p.paye || 0), 0);
-      return `
-        <div class="item-card" style="border-left-color:#d35400;">
-          <span class="b-badge" style="background:#d35400;">${c.branche}</span>
-          <h3>${c.titre}</h3>
-          <p><strong>Lieu :</strong> ${c.lieu}</p>
-          <p><strong>Dates :</strong> ${c.debut} au ${c.fin}</p>
-          <p><strong>Montant à payer :</strong> ${fPrix(c.frais)} | <strong>Inscrits :</strong> ${partList.length}</p>
-          <p><strong>Encaissé :</strong> ${fPrix(totalPaye)}</p>
-          <div class="item-actions no-print">
-            <button class="btn btn-success" onclick="openCampPart('${c.id}')">👥 Inscrits & Paiements</button>
-            <button class="wa-btn" onclick="openWaInfoForCamp('${c.id}')">📱 Informer parents</button>
-            <button class="btn btn-secondary" onclick="openAutoConfig('camp', '${c.id}')">📄 Autorisation</button>
-            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="deleteCamp('${c.id}')">❌ Supprimer</button>` : ""}
-          </div>
+function openMaterielModal(id = null) {
+  const existing = id ? db.materiel.find((m) => m.id === id) : null;
+  openModal(existing ? "Modifier le matériel" : "Ajouter du matériel", `
+    <form onsubmit="saveMateriel(event, '${existing ? existing.id : ""}')">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Désignation *</label>
+          <input type="text" id="mat_nom" value="${escapeHtml(existing ? existing.nom : "")}" required>
         </div>
-      `;
-    })
-    .join("");
-}
-
-function renderChefs() {
-  if (!currentUser) return;
-  const cList = document.getElementById("chefList");
-  if (!cList) return;
-
-  if (db.chefs.length === 0) {
-    cList.innerHTML = "<div class='card'><p>Aucun chef enregistré dans la maîtrise.</p></div>";
-    return;
-  }
-
-  cList.innerHTML = db.chefs
-    .map((c) => {
-      const montantAnnuel = getCotisationAnnuelleChefMontant(c);
-      const tresoBadge = isChefTresorier(c) ? " • Trésorier" : "";
-      let waBtn = "";
-      if (!c.cotisation && c.tel && canManageFinancesAndMatricules()) {
-        const msg = `Bonjour ${c.nom}, rappel de la maîtrise du Groupe Obion : ta cotisation annuelle (${fPrix(montantAnnuel)}) est en attente.`;
-        waBtn = `<a href="${getWaLink(c.tel, msg)}" target="_blank" class="wa-btn">📱 Relancer (${fPrix(montantAnnuel)})</a>`;
-      }
-      const cotiC = c.cotisation
-        ? `<span class="status-dot status-green"></span> Cotisation annuelle (${fPrix(montantAnnuel)}) : À jour`
-        : `<span class="status-dot status-red"></span> Cotisation annuelle (${fPrix(montantAnnuel)}) : Impayé ${waBtn}`;
-
-      return `
-        <div class="item-card b-CG">
-          <span class="b-badge" style="background:var(--c-cg);">${c.fonction}${tresoBadge}</span>
-          <h3>${c.nom}</h3>
-          <p><strong>Titre :</strong> ${c.titre}</p>
-          <p><strong>Téléphone :</strong> <a href="tel:${c.tel}">${c.tel}</a></p>
-          <p style="margin-top:8px;">${cotiC}</p>
-          ${canManageFullAdmin() ? `<p style="color:#e74c3c; margin-top:4px;"><strong>PIN :</strong> ${c.pin}</p>` : ""}
-          ${canManageFullAdmin() ? `
-            <div class="item-actions no-print">
-              <button class="btn btn-edit" onclick="editChef('${c.id}')">✏️ Éditer</button>
-              <button class="btn btn-danger" onclick="deleteChef('${c.id}')">❌ Retirer</button>
-            </div>
-          ` : ""}
+        <div class="form-group">
+          <label>Quantité *</label>
+          <input type="number" id="mat_qte" min="0" value="${existing ? Number(existing.quantite || 0) : 1}" required>
         </div>
-      `;
-    })
-    .join("");
-}
-
-function renderPresences() {
-  const prList = document.getElementById("presenceList");
-  if (!prList || !currentUser) return;
-  const items = [...db.presences]
-    .reverse()
-    .filter((p) => currentUser.hasOverview || p.branche === "Toutes" || p.branche === currentUser.brancheAutorisee);
-
-  if (items.length === 0) {
-    prList.innerHTML = "<div class='card'><p>Aucun appel enregistré.</p></div>";
-    return;
-  }
-
-  prList.innerHTML = items
-    .map(
-      (p) => `
-        <div class="item-card" style="border-left-color:#3498db;">
-          <span class="b-badge" style="background:#3498db;">${p.branche}</span>
-          <h3 style="color:#3498db;">${p.titre}</h3>
-          <p>📅 ${new Date(p.date).toLocaleDateString("fr-FR")} | 👨‍✈️ ${p.resp}</p>
-          <p>✅ Présents : ${p.presents} / ${p.total}</p>
-          <div class="item-actions no-print">
-            <button class="btn btn-secondary" onclick="openPresDetails('${p.id}')">📄 Détails & Absents</button>
-            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="delPres('${p.id}')">❌</button>` : ""}
-          </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>État</label>
+          <input type="text" id="mat_etat" value="${escapeHtml(existing ? existing.etat : "Bon état")}">
         </div>
-      `
-    )
-    .join("");
+        <div class="form-group">
+          <label>Affectation / Branche</label>
+          <input type="text" id="mat_aff" value="${escapeHtml(existing ? existing.affectation : "Groupe")}">
+        </div>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
 }
 
-function renderMatriculeAssignTable() {
-  const tbody = document.getElementById("matriculeAssignList");
-  if (!tbody) return;
+async function saveMateriel(e, id) {
+  e.preventDefault();
+  const payload = {
+    id: id || uid("mat"),
+    nom: document.getElementById("mat_nom").value.trim(),
+    quantite: Number(document.getElementById("mat_qte").value || 0),
+    etat: document.getElementById("mat_etat").value.trim(),
+    affectation: document.getElementById("mat_aff").value.trim()
+  };
+  if (id) {
+    db.materiel = db.materiel.map((m) => (m.id === id ? payload : m));
+  } else {
+    db.materiel.push(payload);
+  }
+  closeModal();
+  await persistDb(id ? "Modification matériel" : "Ajout matériel", payload.nom);
+}
 
-  if (db.scouts.length === 0) {
-    tbody.innerHTML = "<tr><td colspan='4'>Aucun jeune inscrit.</td></tr>";
+async function deleteMateriel(id) {
+  db.materiel = db.materiel.filter((m) => m.id !== id);
+  await persistDb("Suppression matériel", id);
+}
+
+/* 8. FINANCES, WAVE RACCOURCI, DONS, JOURNAL & REÇUS */
+function renderWaveTresorerieBox() {
+  const box = document.getElementById("waveTresorerieBox");
+  const linkBtn = document.getElementById("waveTresorerieLinkBtn");
+  const label = document.getElementById("waveTresorerieUrlLabel");
+  if (!box || !linkBtn || !label) return;
+
+  const url = String((db.settings && db.settings.wave_url) || "").trim();
+  if (!url) {
+    box.style.display = "none";
     return;
   }
+  box.style.display = "flex";
+  label.textContent = url;
+  linkBtn.href = url;
+}
 
-  tbody.innerHTML = db.scouts
-    .map((s) => {
-      const statusHtml = s.cotisation
-        ? `<span class="status-dot status-green"></span> Payée (2 500 FCFA)`
-        : `<span class="status-dot status-red"></span> Non payée`;
-      return `
-        <tr>
-          <td><strong>${s.nom}</strong> <small>(${s.branche})</small></td>
-          <td>${statusHtml}</td>
-          <td>
-            <input type="text" id="mat_input_${s.id}" value="${s.mat || ""}" placeholder="${s.cotisation ? "Saisir matricule ASCCI" : "Cotisation requise"}" ${s.cotisation ? "" : "disabled"} style="width:190px;">
-          </td>
-          <td>
-            <button class="btn btn-success" onclick="assignScoutMatricule('${s.id}')" ${s.cotisation ? "" : "disabled"}>Valider matricule</button>
-          </td>
-        </tr>
-      `;
-    })
-    .join("");
+function copyWavePaymentLink() {
+  const url = String((db.settings && db.settings.wave_url) || "").trim();
+  if (!url) {
+    alert("Aucun lien configuré dans Paramètres.");
+    return;
+  }
+  navigator.clipboard?.writeText(url);
+  alert("Lien copié !");
 }
 
 function renderFinances() {
-  if (!currentUser || !canManageFinancesAndMatricules()) return;
-  const fList = document.getElementById("financeList");
-  if (!fList) return;
+  if (!canManageFinances()) return;
+  renderWaveTresorerieBox();
 
-  document.getElementById("fin_cot_mens_j").value = db.settings.cot_mens_j || 0;
-  document.getElementById("fin_cot_mens_c").value = db.settings.cot_mens_c || 0;
+  const month = document.getElementById("financeMonthPicker").value || new Date().toISOString().slice(0, 7);
+  const monthEntries = db.finances.filter((f) => String(f.date || "").startsWith(month));
 
-  let tIn = 0;
-  let tOut = 0;
-  const sorted = [...db.finances].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const entreesMois = monthEntries.filter((f) => f.type === "entree").reduce((a, b) => a + Number(b.montant || 0), 0);
+  const sortiesMois = monthEntries.filter((f) => f.type === "sortie").reduce((a, b) => a + Number(b.montant || 0), 0);
+  const soldeGlobal = db.finances.reduce((a, b) => a + (b.type === "entree" ? Number(b.montant || 0) : -Number(b.montant || 0)), 0);
+  const partEccEstimee = db.scouts.filter((s) => s.cotisation_annuelle === "paye").length * Number(db.settings.cot_j_ascci || 2085);
 
-  fList.innerHTML = sorted
-    .map((f) => {
-      const amt = Number(f.montant || 0);
-      if (f.type === "in") tIn += amt;
-      else tOut += amt;
-      const cColor = f.type === "in" ? "td-entree" : "td-sortie";
-      const sign = f.type === "in" ? "+" : "-";
-      const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && amt === 2500;
-      const cleanMotif = String(f.motif || "").replace(/\[MENS:[^\]]+\]/g, "").trim();
-      const motifCell = isCotiJeune
-        ? `${cleanMotif}<br><small style="color:#555;">Part ASCCI : 2 085 FCFA • Part Caisse Groupe : 415 FCFA</small>`
-        : cleanMotif;
-      return `
-        <tr>
-          <td>${new Date(f.date).toLocaleDateString("fr-FR")}</td>
-          <td class="${cColor}">${f.type === "in" ? "Entrée" : "Sortie"}</td>
-          <td>${f.cat}</td>
-          <td>${motifCell}</td>
-          <td class="${cColor}">${sign} ${fPrix(amt)}</td>
-          <td class="no-print"><button class="btn btn-danger" style="padding:4px 8px;" onclick="delFin('${f.id}')">❌</button></td>
-        </tr>
-      `;
-    })
-    .join("");
+  document.getElementById("financeKpiGrid").innerHTML = `
+    <div class="kpi-box"><div class="kpi-label">Entrées (${escapeHtml(month)})</div><div class="kpi-value" style="color:var(--success);">${formatMoney(entreesMois)}</div></div>
+    <div class="kpi-box"><div class="kpi-label">Sorties (${escapeHtml(month)})</div><div class="kpi-value" style="color:var(--danger);">${formatMoney(sortiesMois)}</div></div>
+    <div class="kpi-box"><div class="kpi-label">Solde global caisse</div><div class="kpi-value">${formatMoney(soldeGlobal)}</div></div>
+    <div class="kpi-box"><div class="kpi-label">Repère part ECC / annuelles</div><div class="kpi-value">${formatMoney(partEccEstimee)}</div><div class="kpi-sub">Unité : ${formatMoney(db.settings.cot_j_ascci || 2085)}</div></div>
+  `;
 
-  const paidScoutsCount = db.scouts.filter((s) => s.cotisation).length;
-  document.getElementById("f_tot_in").textContent = fPrix(tIn);
-  document.getElementById("f_tot_out").textContent = fPrix(tOut);
-  document.getElementById("f_solde").textContent = fPrix(tIn - tOut);
-  document.getElementById("f_split_coti").innerHTML =
-    `ASCCI : ${fPrix(paidScoutsCount * 2085)}<br>Caisse : ${fPrix(paidScoutsCount * 415)}`;
-
-  renderPointMensuel();
-  renderCotisationsValidation();
-  renderMatriculeAssignTable();
-}
-
-function renderMateriel() {
-  const mList = document.getElementById("materielList");
-  if (!mList) return;
-  if (db.materiel.length === 0) {
-    mList.innerHTML = "<div class='card'><p>Aucun matériel enregistré.</p></div>";
-    return;
-  }
-  mList.innerHTML = db.materiel
-    .map(
-      (m) => `
-        <div class="item-card" style="border-left-color:#8e44ad;">
-          <span class="b-badge" style="background:#8e44ad;">${m.cat}</span>
-          <h3 style="color:#8e44ad;">${m.nom}</h3>
-          <p>📦 Qté : ${m.qte} | 🛠️ État : ${m.etat}</p>
-          <p>👤 Lieu / Resp : ${m.resp}</p>
-          <div class="item-actions no-print">
-            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="delMat('${m.id}')">❌ Retirer</button>` : ""}
+  const tbody = document.getElementById("financesTableBody");
+  if (!db.finances.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucune écriture enregistrée.</td></tr>`;
+  } else {
+    tbody.innerHTML = db.finances.map((f) => `
+      <tr>
+        <td>${escapeHtml(f.date || "-")}</td>
+        <td>${f.type === "entree" ? `<span class="badge badge-green">Entrée</span>` : `<span class="badge badge-red">Sortie</span>`}</td>
+        <td>${escapeHtml(f.categorie || "Général")}</td>
+        <td><strong>${escapeHtml(f.libelle)}</strong></td>
+        <td><strong>${formatMoney(f.montant)}</strong></td>
+        <td>
+          <div class="actions-row">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="openFinanceModal('${f.id}')">Modifier</button>
+            <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptModal('${f.id}')">Reçu</button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="deleteFinanceEntry('${f.id}')">Suppr.</button>
           </div>
-        </div>
-      `
-    )
-    .join("");
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  const donsBody = document.getElementById("donsTableBody");
+  if (!db.dons.length) {
+    donsBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun don enregistré.</td></tr>`;
+  } else {
+    donsBody.innerHTML = db.dons.map((d) => `
+      <tr>
+        <td>${escapeHtml(d.date || "-")}</td>
+        <td><strong>${escapeHtml(d.donateur)}</strong></td>
+        <td><span class="badge badge-blue">${escapeHtml(d.nature)}</span></td>
+        <td>${d.nature === "Financier" ? formatMoney(d.montant) : escapeHtml(d.description || "")}</td>
+        <td><button type="button" class="btn btn-sm btn-danger" onclick="deleteDon('${d.id}')">Suppr.</button></td>
+      </tr>
+    `).join("");
+  }
+
+  const logBody = document.getElementById("auditLogTableBody");
+  if (!db.auditLog.length) {
+    logBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--muted);">Aucune trace enregistrée.</td></tr>`;
+  } else {
+    logBody.innerHTML = db.auditLog.slice(0, 25).map((l) => `
+      <tr>
+        <td>${escapeHtml(l.date)}</td>
+        <td>${escapeHtml(l.auteur)}</td>
+        <td>${escapeHtml(l.action)}</td>
+        <td>${escapeHtml(l.detail)}</td>
+      </tr>
+    `).join("");
+  }
 }
 
-function renderParrains() {
-  const paList = document.getElementById("parrainList");
-  if (!paList || !currentUser) return;
-  const mapP = {};
-  db.scouts.forEach((s) => {
-    if (s.parrain && (currentUser.hasOverview || s.branche === currentUser.brancheAutorisee)) {
-      if (!mapP[s.parrain]) {
-        mapP[s.parrain] = { tel: s.parrain_tel || "", scouts: [] };
-      } else if (!mapP[s.parrain].tel && s.parrain_tel) {
-        mapP[s.parrain].tel = s.parrain_tel;
-      }
-      mapP[s.parrain].scouts.push(s);
-    }
-  });
+function openFinanceModal(id = null) {
+  if (!canManageFinances()) return;
+  const existing = id ? db.finances.find((f) => f.id === id) : null;
+  openModal(existing ? "Modifier l'écriture financière" : "Ajouter une écriture financière", `
+    <form onsubmit="saveFinanceEntry(event, '${existing ? existing.id : ""}')">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="fin_date" value="${escapeHtml(existing ? existing.date : new Date().toISOString().slice(0, 10))}" required>
+        </div>
+        <div class="form-group">
+          <label>Type *</label>
+          <select id="fin_type">
+            <option value="entree" ${!existing || existing.type === "entree" ? "selected" : ""}>Entrée</option>
+            <option value="sortie" ${existing && existing.type === "sortie" ? "selected" : ""}>Sortie</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Montant (FCFA) *</label>
+          <input type="number" id="fin_montant" min="0" step="any" value="${existing ? Number(existing.montant || 0) : ""}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Catégorie</label>
+          <input type="text" id="fin_cat" value="${escapeHtml(existing ? existing.categorie : "Cotisation / Activité")}">
+        </div>
+        <div class="form-group">
+          <label>Libellé / Description *</label>
+          <input type="text" id="fin_libelle" value="${escapeHtml(existing ? existing.libelle : "")}" required>
+        </div>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
+}
 
-  const keys = Object.keys(mapP).sort();
-  if (keys.length === 0) {
-    paList.innerHTML = "<div class='card'><p>Aucun parrain ou marraine renseigné.</p></div>";
+async function saveFinanceEntry(e, id) {
+  e.preventDefault();
+  if (!canManageFinances()) return;
+  const payload = {
+    id: id || uid("fin"),
+    date: document.getElementById("fin_date").value,
+    type: document.getElementById("fin_type").value,
+    montant: Number(document.getElementById("fin_montant").value || 0),
+    categorie: document.getElementById("fin_cat").value.trim() || "Général",
+    libelle: document.getElementById("fin_libelle").value.trim()
+  };
+  if (id) {
+    db.finances = db.finances.map((f) => (f.id === id ? payload : f));
+  } else {
+    db.finances.unshift(payload);
+  }
+  closeModal();
+  await persistDb(id ? "Modification écriture financière" : "Ajout écriture financière", `${payload.libelle} (${formatMoney(payload.montant)})`);
+}
+
+async function deleteFinanceEntry(id) {
+  if (!canManageFinances()) return;
+  if (!confirm("Supprimer cette écriture ?")) return;
+  const target = db.finances.find((f) => f.id === id);
+  db.finances = db.finances.filter((f) => f.id !== id);
+  await persistDb("Suppression écriture financière", target ? target.libelle : id);
+}
+
+function openDonModal() {
+  if (!canManageFinances()) return;
+  openModal("Enregistrer un don", `
+    <form onsubmit="saveDon(event)">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Donateur *</label>
+          <input type="text" id="don_donateur" required>
+        </div>
+        <div class="form-group">
+          <label>Nature du don</label>
+          <select id="don_nature" onchange="toggleDonMontant()">
+            <option value="Financier">Financier</option>
+            <option value="En nature">En nature</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="don_date" value="${new Date().toISOString().slice(0, 10)}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" id="don_montant_wrap">
+          <label>Montant (FCFA)</label>
+          <input type="number" id="don_montant" min="0" value="0">
+        </div>
+        <div class="form-group">
+          <label>Description / Détails</label>
+          <input type="text" id="don_desc" placeholder="Ex: Don matériel, soutien activité...">
+        </div>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer le don</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
+}
+
+function toggleDonMontant() {
+  const nat = document.getElementById("don_nature").value;
+  document.getElementById("don_montant_wrap").style.display = nat === "Financier" ? "block" : "none";
+}
+
+async function saveDon(e) {
+  e.preventDefault();
+  if (!canManageFinances()) return;
+  const donateur = document.getElementById("don_donateur").value.trim();
+  const nature = document.getElementById("don_nature").value;
+  const date = document.getElementById("don_date").value;
+  const montant = Number(document.getElementById("don_montant").value || 0);
+  const description = document.getElementById("don_desc").value.trim();
+
+  db.dons.unshift({ id: uid("don"), donateur, nature, date, montant, description });
+
+  if (nature === "Financier" && montant > 0) {
+    db.finances.unshift({
+      id: uid("fin"),
+      date,
+      type: "entree",
+      categorie: "Don",
+      libelle: `Don de ${donateur}${description ? " — " + description : ""}`,
+      montant
+    });
+  }
+
+  closeModal();
+  await persistDb("Enregistrement don", `${donateur} (${nature})`);
+}
+
+async function deleteDon(id) {
+  if (!canManageFinances()) return;
+  db.dons = db.dons.filter((d) => d.id !== id);
+  await persistDb("Suppression don", id);
+}
+
+/* GÉNÉRATION DE REÇUS (ACTIVITÉS & COTISATIONS MENSUELLES) */
+function openReceiptModal(financeId = null) {
+  if (!canManageFinances()) return;
+  const f = financeId ? db.finances.find((x) => x.id === financeId) : null;
+  const scoutOptions = db.scouts.map((s) => `<option value="${s.id}">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)} (${escapeHtml(s.branche)})</option>`).join("");
+
+  openModal("Générer un reçu de paiement", `
+    <form onsubmit="buildReceiptPreview(event)">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Jeune / Membre</label>
+          <select id="rc_scout">${scoutOptions}</select>
+        </div>
+        <div class="form-group">
+          <label>Motif du paiement</label>
+          <select id="rc_motif">
+            <option value="Cotisation mensuelle">Cotisation mensuelle</option>
+            <option value="Paiement d'activité">Paiement d'activité</option>
+            <option value="Participation camp">Participation camp</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Montant payé (FCFA) *</label>
+          <input type="number" id="rc_montant" min="1" value="${f ? Number(f.montant || 0) : Number(db.settings.cot_mens_j || 500)}" required>
+        </div>
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="rc_date" value="${escapeHtml(f && f.date ? f.date : new Date().toISOString().slice(0, 10))}" required>
+        </div>
+        <div class="form-group">
+          <label>Précision (mois ou activité)</label>
+          <input type="text" id="rc_detail" value="${escapeHtml(f ? f.libelle : "")}" placeholder="Ex: Novembre 2026 ou Sortie">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-accent">Prévisualiser le reçu</button>
+    </form>
+    <div id="receiptPreviewArea" style="margin-top:16px;"></div>
+  `);
+}
+
+function buildReceiptPreview(e) {
+  e.preventDefault();
+  const scoutId = document.getElementById("rc_scout").value;
+  const scout = db.scouts.find((s) => s.id === scoutId);
+  const motif = document.getElementById("rc_motif").value;
+  const montant = Number(document.getElementById("rc_montant").value || 0);
+  const date = document.getElementById("rc_date").value;
+  const detail = document.getElementById("rc_detail").value.trim();
+
+  const nomJeune = scout ? `${scout.nom} ${scout.prenom}` : "Membre";
+  const brancheJeune = scout ? scout.branche : "";
+  const recuText = [
+    `REÇU DE PAIEMENT — GROUPE SCOUT OBION`,
+    `Date : ${date}`,
+    `Membre : ${nomJeune} (${brancheJeune})`,
+    `Motif : ${motif}${detail ? " — " + detail : ""}`,
+    `Montant encaissé : ${formatMoney(montant)}`,
+    `Merci pour votre confiance.`
+  ].join("\n");
+
+  const cachetHtml = db.settings.cachet_actif
+    ? `<div class="cachet-box">GROUPE OBION · TRÉSORERIE VALIDÉE</div>`
+    : "";
+
+  document.getElementById("receiptPreviewArea").innerHTML = `
+    <div class="receipt-box" id="printableReceiptCard">
+      <div class="receipt-header">
+        <div>
+          <h4 style="color:var(--primary);">REÇU DE PAIEMENT — GROUPE OBION</h4>
+          <small>Date : ${escapeHtml(date)}</small>
+        </div>
+        <span class="badge badge-green">Payé</span>
+      </div>
+      <p><strong>Membre :</strong> ${escapeHtml(nomJeune)} ${brancheJeune ? `(${escapeHtml(brancheJeune)})` : ""}</p>
+      <p><strong>Motif :</strong> ${escapeHtml(motif)} ${detail ? `— ${escapeHtml(detail)}` : ""}</p>
+      <p style="margin-top:8px; font-size:1.05rem;"><strong>Montant :</strong> ${formatMoney(montant)}</p>
+      ${cachetHtml}
+    </div>
+    <div class="actions-row" style="margin-top:12px;">
+      <button type="button" class="btn btn-sm btn-success" onclick="copyReceiptText(${JSON.stringify(recuText)})">📋 Copier le reçu</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="printReceiptCard()">🖨️ Imprimer / PDF</button>
+    </div>
+  `;
+}
+
+function copyReceiptText(text) {
+  navigator.clipboard?.writeText(text);
+  alert("Reçu copié dans le presse-papiers !");
+}
+
+function printReceiptCard() {
+  const card = document.getElementById("printableReceiptCard");
+  if (!card) return;
+  const pz = document.getElementById("printZone");
+  pz.innerHTML = card.outerHTML;
+  window.print();
+}
+
+function printPointMensuel() {
+  const month = document.getElementById("financeMonthPicker").value || new Date().toISOString().slice(0, 7);
+  const rows = db.finances.filter((f) => String(f.date || "").startsWith(month));
+  const entrees = rows.filter((f) => f.type === "entree").reduce((a, b) => a + Number(b.montant || 0), 0);
+  const sorties = rows.filter((f) => f.type === "sortie").reduce((a, b) => a + Number(b.montant || 0), 0);
+
+  const pz = document.getElementById("printZone");
+  pz.innerHTML = `
+    <div style="font-family:sans-serif; padding:12px;">
+      <h2>POINT FINANCIER MENSUEL (${escapeHtml(month)}) — GROUPE OBION</h2>
+      <p style="margin:8px 0;">Entrées : <strong>${formatMoney(entrees)}</strong> · Sorties : <strong>${formatMoney(sorties)}</strong> · Solde du mois : <strong>${formatMoney(entrees - sorties)}</strong></p>
+      <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+        <thead>
+          <tr>
+            <th style="border:1px solid #999; padding:6px;">Date</th>
+            <th style="border:1px solid #999; padding:6px;">Type</th>
+            <th style="border:1px solid #999; padding:6px;">Libellé</th>
+            <th style="border:1px solid #999; padding:6px;">Montant</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r) => `
+            <tr>
+              <td style="border:1px solid #999; padding:6px;">${escapeHtml(r.date)}</td>
+              <td style="border:1px solid #999; padding:6px;">${escapeHtml(r.type)}</td>
+              <td style="border:1px solid #999; padding:6px;">${escapeHtml(r.libelle)}</td>
+              <td style="border:1px solid #999; padding:6px;">${formatMoney(r.montant)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  window.print();
+}
+
+/* 9. ANNONCES & COMMUNICATION PARENTS */
+function applyAnnonceTemplate() {
+  const tpl = document.getElementById("annonceTemplate").value;
+  const br = document.getElementById("annonceBrancheSelect").value;
+  const scoutId = document.getElementById("annonceScoutSelect").value;
+  const sc = db.scouts.find((x) => x.id === scoutId);
+  const jeuneNom = sc ? `${sc.prenom} ${sc.nom}` : "votre enfant";
+  const mensMontant = formatMoney(db.settings.cot_mens_j || 500);
+
+  const presets = {
+    cotisation_mensuelle: `Bonjour chers parents (Groupe OBION), nous vous informons de la mise en place / du suivi de la cotisation mensuelle des jeunes (${mensMontant}). Merci pour votre accompagnement.`,
+    eglise_tenue: `Bonjour chers parents (Groupe OBION), lors de notre prochaine activité à l'église, tous les jeunes doivent impérativement être en tenue scoute complète. Merci de bien le préparer.`,
+    tenue_manquante: `Bonjour chers parents (Groupe OBION), nous signalons que ${jeuneNom} n'a pas encore de tenue scoute complète. Merci de prévoir de régulariser cela afin qu'il/elle soit prêt(e) pour les activités.`,
+    nouvelles_regles: `Bonjour chers parents (Groupe OBION), de nouvelles consignes de vie et d'organisation ont été arrêtées pour ${isCU() ? "la branche " + br : "le groupe"}. Merci de veiller à leur bonne application.`,
+    libre: ""
+  };
+
+  const area = document.getElementById("annonceTextArea");
+  if (area && tpl !== "libre") {
+    area.value = presets[tpl] || "";
+  }
+}
+
+function renderAnnonceRecipients() {
+  const mode = document.getElementById("annonceTargetMode").value;
+  const brWrap = document.getElementById("annonceBrancheWrap");
+  const scWrap = document.getElementById("annonceScoutWrap");
+  const scSelect = document.getElementById("annonceScoutSelect");
+
+  let baseList = getScopedScouts();
+  scSelect.innerHTML = baseList.map((s) => `<option value="${s.id}">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)} (${escapeHtml(s.branche)})</option>`).join("");
+
+  if (isCU() && currentUser.branche) {
+    brWrap.style.display = "none";
+    document.getElementById("annonceBrancheSelect").value = currentUser.branche;
+  } else {
+    brWrap.style.display = mode === "branche" ? "block" : "none";
+  }
+  scWrap.style.display = mode === "jeune" ? "block" : "none";
+
+  let filtered = baseList;
+  if (mode === "branche") {
+    const selectedBr = isCU() && currentUser.branche ? currentUser.branche : document.getElementById("annonceBrancheSelect").value;
+    filtered = filtered.filter((s) => s.branche === selectedBr);
+  } else if (mode === "jeune") {
+    const selectedId = scSelect.value;
+    filtered = filtered.filter((s) => s.id === selectedId);
+  }
+
+  const msg = encodeURIComponent(document.getElementById("annonceTextArea").value || "");
+  const tbody = document.getElementById("annonceRecipientsBody");
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--muted);">Aucun destinataire trouvé.</td></tr>`;
     return;
   }
 
-  paList.innerHTML = keys
-    .map((p) => {
-      const entry = mapP[p];
-      const lis = entry.scouts.map((s) => `<li>${s.nom} <small>(${s.branche})</small></li>`).join("");
-      const contactHtml = entry.tel
-        ? `<p><strong>Contact :</strong> <a href="tel:${entry.tel}">${entry.tel}</a> <a href="${getWaLink(entry.tel, `Bonjour ${p}, Groupe OBION — Saint Bernard d'Adiopodoumé.`)}" target="_blank" class="wa-btn">📱 WhatsApp</a></p>`
-        : `<p><small style="color:#888;">Contact non renseigné</small></p>`;
-      return `
-        <div class="item-card" style="border-left-color:#e67e22;">
-          <h3 style="color:#e67e22;">🤝 ${p}</h3>
-          ${contactHtml}
-          <p><strong>Filleul(s) :</strong></p>
-          <ul style="margin-left:20px; font-size:0.9rem;">${lis}</ul>
-        </div>
-      `;
-    })
-    .join("");
-}
+  tbody.innerHTML = filtered.map((s) => {
+    const cleanPhone = String(s.parent_tel || "").replace(/[^0-9]/g, "");
+    const intlPhone = cleanPhone.startsWith("225") ? cleanPhone : (cleanPhone ? `225${cleanPhone}` : "");
+    const waHref = intlPhone ? `https://wa.me/${intlPhone}?text=${msg}` : "";
 
-function renderAll() {
-  if (!currentUser) return;
-  renderDashboard();
-  renderProgramme();
-  renderScouts();
-  renderPedagogie();
-  renderCamps();
-  renderPresences();
-  renderMateriel();
-  renderParrains();
-  renderChefs();
-  renderFinances();
-  renderSettingsInputs();
-}
-
-function finishInitUI() {
-  applyAppAndBrandLogos();
-  populateLoginSelect();
-  toggleProgCampFields();
-  const loader = document.getElementById("loaderScreen");
-  if (loader) loader.style.display = "none";
-
-  const savedSession = sessionStorage.getItem(SESSION_KEY);
-  if (savedSession) {
-    try {
-      const parsed = JSON.parse(savedSession);
-      const match = getUsersList().find((u) => u.id === parsed.id);
-      if (match) {
-        currentUser = match;
-        document.getElementById("appContainer").style.display = "block";
-        applyRolePermissions();
-        nav(currentActiveTab || "dashboard");
-        return;
-      }
-    } catch (_) {}
-  }
-
-  document.getElementById("loginScreen").style.display = "flex";
-}
-
-async function initApp() {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const nowMonth = todayStr.slice(0, 7);
-  const pDate = document.getElementById("p_date");
-  const fDate = document.getElementById("f_date");
-  const cotMois = document.getElementById("cot_mois_cible");
-  const pointMois = document.getElementById("f_point_mois");
-  if (pDate && !pDate.value) pDate.value = todayStr;
-  if (fDate && !fDate.value) fDate.value = todayStr;
-  if (cotMois && !cotMois.value) cotMois.value = nowMonth;
-  if (pointMois && !pointMois.value) pointMois.value = nowMonth;
-
-  normalizeDb();
-  finishInitUI();
-
-  try {
-    const snap = await withTimeout(docRefObion.get(), 4000);
-    if (snap && snap.exists) {
-      db = snap.data();
-      normalizeDb();
-      applyAppAndBrandLogos();
-      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
-      populateLoginSelect();
-      setSyncBadge("☁️ Synchronisé en ligne", "#27ae60");
-      if (currentUser) {
-        const refreshed = getUsersList().find((u) => u.id === currentUser.id);
-        if (refreshed) {
-          currentUser = refreshed;
-          sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-          applyRolePermissions();
-        }
-        renderAll();
-      }
-    } else {
-      withTimeout(docRefObion.set(db, { merge: true }), 4000).catch(() => {});
-    }
-  } catch (err) {
-    console.warn("Synchro cloud différée, mode local actif :", err);
-    setSyncBadge("💾 Mode local actif", "#7f8c8d");
-  }
-
-  startRealtimeListener();
-}
-
-window.addEventListener("DOMContentLoaded", initApp);
-if (typeof window.getSelectedCotMonth !== "function") {
-  window.getSelectedCotMonth = function () {
-    const input = document.getElementById("cot_mois_cible");
-    if (input && input.value) return input.value;
-    const nowMonth = new Date().toISOString().slice(0, 7);
-    if (input) input.value = nowMonth;
-    return nowMonth;
-  };
-}
-
-if (typeof window.isMensuellePaid !== "function") {
-  window.isMensuellePaid = function (kind, memberId, mois) {
-    const tag = `[MENS:${kind}:${memberId}:${mois}]`;
-    return (db.finances || []).some(
-      (f) => f.type === "in" && f.cat === "Cotisation Mensuelle" && String(f.motif || "").includes(tag)
-    );
-  };
-}
-
-if (typeof window.validerCotisationAnnuelleDirecte !== "function") {
-  window.validerCotisationAnnuelleDirecte = async function (kind, memberId) {
-    if (!canManageFinancesAndMatricules()) {
-      alert("Accès réservé au Trésorier / Financier.");
-      return;
-    }
-    const today = new Date().toISOString().slice(0, 10);
-    if (kind === "scout") {
-      const s = (db.scouts || []).find((x) => x.id === memberId);
-      if (!s || s.cotisation) return;
-      db.scouts = db.scouts.map((x) => (x.id === memberId ? { ...x, cotisation: true } : x));
-      db.finances.push({
-        id: "fin_" + Date.now(),
-        type: "in",
-        cat: "Cotisation Annuelle",
-        montant: 2500,
-        date: today,
-        motif: `Cotisation annuelle jeune — ${s.nom} (${s.branche})`
-      });
-      await syncCloud(true);
-      renderAll();
-    } else if (kind === "chef") {
-      const c = (db.chefs || []).find((x) => x.id === memberId);
-      if (!c || c.cotisation) return;
-      const montant = typeof getCotisationAnnuelleChefMontant === "function"
-        ? getCotisationAnnuelleChefMontant(c)
-        : 2600;
-      db.chefs = db.chefs.map((x) => (x.id === memberId ? { ...x, cotisation: true } : x));
-      db.finances.push({
-        id: "fin_" + Date.now(),
-        type: "in",
-        cat: "Cotisation Annuelle",
-        montant,
-        date: today,
-        motif: `Cotisation annuelle maîtrise — ${c.nom} (${c.fonction})`
-      });
-      await syncCloud(true);
-      renderAll();
-    }
-  };
-}
-
-if (typeof window.validerCotisationMensuelleDirecte !== "function") {
-  window.validerCotisationMensuelleDirecte = async function (kind, memberId) {
-    if (!canManageFinancesAndMatricules()) {
-      alert("Accès réservé au Trésorier / Financier.");
-      return;
-    }
-    const mois = window.getSelectedCotMonth();
-    if (window.isMensuellePaid(kind, memberId, mois)) return;
-    const today = new Date().toISOString().slice(0, 10);
-
-    if (kind === "scout") {
-      const s = (db.scouts || []).find((x) => x.id === memberId);
-      if (!s) return;
-      const montant = Number(db.settings?.cot_mens_j || 0);
-      if (montant <= 0) {
-        alert("Définissez d'abord le montant de la cotisation mensuelle jeune ci-dessus.");
-        return;
-      }
-      db.finances.push({
-        id: "fin_" + Date.now(),
-        type: "in",
-        cat: "Cotisation Mensuelle",
-        montant,
-        date: today,
-        motif: `Cotisation mensuelle ${mois} — ${s.nom} (${s.branche}) [MENS:scout:${s.id}:${mois}]`
-      });
-    } else if (kind === "chef") {
-      const c = (db.chefs || []).find((x) => x.id === memberId);
-      if (!c) return;
-      const montant = Number(db.settings?.cot_mens_c || 0);
-      if (montant <= 0) {
-        alert("Définissez d'abord le montant de la cotisation mensuelle chef ci-dessus.");
-        return;
-      }
-      db.finances.push({
-        id: "fin_" + Date.now(),
-        type: "in",
-        cat: "Cotisation Mensuelle",
-        montant,
-        date: today,
-        motif: `Cotisation mensuelle ${mois} — ${c.nom} (${c.fonction}) [MENS:chef:${c.id}:${mois}]`
-      });
-    }
-
-    await syncCloud(true);
-    renderAll();
-  };
-}
-
-if (typeof window.renderCotisationsValidation !== "function") {
-  window.renderCotisationsValidation = function () {
-    const tbody = document.getElementById("cotisationsValidationList");
-    if (!tbody) return;
-    const mois = window.getSelectedCotMonth();
-    const filtre = document.getElementById("cot_filtre_type")?.value || "tous";
-    const rows = [];
-
-    if (filtre === "tous" || filtre === "jeunes") {
-      const montantMensJ = Number(db.settings?.cot_mens_j || 0);
-      (db.scouts || []).forEach((s) => {
-        const annPayee = Boolean(s.cotisation);
-        const mensPayee = window.isMensuellePaid("scout", s.id, mois);
-        const waMensBtn = !mensPayee && s.tel && typeof buildMonthlyCotisationReminderMessage === "function"
-          ? `<a href="${getWaLink(s.tel, buildMonthlyCotisationReminderMessage(s.nom, s.branche, mois, montantMensJ))}" target="_blank" class="wa-btn">📱 Relancer mensuelle</a>`
-          : "";
-
-        rows.push(`
-          <tr>
-            <td><strong>${s.nom}</strong> <small>(Jeune • ${s.branche || "-"})</small></td>
-            <td>${annPayee ? `<span class="status-dot status-green"></span> Payée (2 500 FCFA)` : `<span class="status-dot status-red"></span> Non payée (2 500 FCFA)`}</td>
-            <td>${mensPayee ? `<span class="status-dot status-green"></span> Payée (${mois})` : `<span class="status-dot status-red"></span> Non payée (${mois})`}</td>
-            <td style="display:flex; gap:6px; flex-wrap:wrap;">
-              ${!annPayee ? `<button class="btn btn-success" onclick="validerCotisationAnnuelleDirecte('scout','${s.id}')">Valider Annuelle</button>` : ""}
-              ${!mensPayee ? `<button class="btn btn-main" style="width:auto; margin-top:0;" onclick="validerCotisationMensuelleDirecte('scout','${s.id}')">Valider Mensuelle</button>` : ""}
-              ${waMensBtn}
-            </td>
-          </tr>
-        `);
-      });
-    }
-
-    if (filtre === "tous" || filtre === "chefs") {
-      const montantMensC = Number(db.settings?.cot_mens_c || 0);
-      (db.chefs || []).forEach((c) => {
-        const montantAnn = typeof getCotisationAnnuelleChefMontant === "function"
-          ? getCotisationAnnuelleChefMontant(c)
-          : 2600;
-        const annPayee = Boolean(c.cotisation);
-        const mensPayee = window.isMensuellePaid("chef", c.id, mois);
-        const waMensBtn = !mensPayee && c.tel && typeof buildMonthlyCotisationReminderMessage === "function"
-          ? `<a href="${getWaLink(c.tel, buildMonthlyCotisationReminderMessage(c.nom, c.titre || c.fonction, mois, montantMensC))}" target="_blank" class="wa-btn">📱 Relancer mensuelle</a>`
-          : "";
-
-        rows.push(`
-          <tr>
-            <td><strong>${c.nom}</strong> <small>(Maîtrise • ${c.fonction || "-"})</small></td>
-            <td>${annPayee ? `<span class="status-dot status-green"></span> Payée (${fPrix(montantAnn)})` : `<span class="status-dot status-red"></span> Non payée (${fPrix(montantAnn)})`}</td>
-            <td>${mensPayee ? `<span class="status-dot status-green"></span> Payée (${mois})` : `<span class="status-dot status-red"></span> Non payée (${mois})`}</td>
-            <td style="display:flex; gap:6px; flex-wrap:wrap;">
-              ${!annPayee ? `<button class="btn btn-success" onclick="validerCotisationAnnuelleDirecte('chef','${c.id}')">Valider Annuelle</button>` : ""}
-              ${!mensPayee ? `<button class="btn btn-main" style="width:auto; margin-top:0;" onclick="validerCotisationMensuelleDirecte('chef','${c.id}')">Valider Mensuelle</button>` : ""}
-              ${waMensBtn}
-            </td>
-          </tr>
-        `);
-      });
-    }
-
-    tbody.innerHTML = rows.join("") || "<tr><td colspan='4'>Aucun membre à afficher.</td></tr>";
-  };
-}
-
-if (typeof window.renderPointMensuel !== "function") {
-  window.renderPointMensuel = function () {
-    const tbody = document.getElementById("pointMensuelList");
-    if (!tbody) return;
-    const input = document.getElementById("f_point_mois");
-    const mois = (input && input.value) || new Date().toISOString().slice(0, 7);
-    if (input && !input.value) input.value = mois;
-
-    const ops = [...(db.finances || [])]
-      .filter((f) => String(f.date || "").startsWith(mois))
-      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-
-    let mIn = 0;
-    let mOut = 0;
-    ops.forEach((f) => {
-      const amt = Number(f.montant || 0);
-      if (f.type === "in") mIn += amt;
-      else mOut += amt;
-    });
-
-    const jeunesMensOk = (db.scouts || []).filter((s) => window.isMensuellePaid("scout", s.id, mois)).length;
-    const chefsMensOk = (db.chefs || []).filter((c) => window.isMensuellePaid("chef", c.id, mois)).length;
-
-    const elIn = document.getElementById("pm_in");
-    const elOut = document.getElementById("pm_out");
-    const elSolde = document.getElementById("pm_solde");
-    const elCotis = document.getElementById("pm_cotis");
-
-    if (elIn) elIn.textContent = fPrix(mIn);
-    if (elOut) elOut.textContent = fPrix(mOut);
-    if (elSolde) {
-      elSolde.textContent = fPrix(mIn - mOut);
-      elSolde.style.color = mIn - mOut >= 0 ? "#27ae60" : "#c0392b";
-    }
-    if (elCotis) {
-      elCotis.textContent = `Jeunes : ${jeunesMensOk}/${(db.scouts || []).length} • Chefs : ${chefsMensOk}/${(db.chefs || []).length}`;
-    }
-
-    tbody.innerHTML =
-      ops
-        .map((f) => {
-          const amt = Number(f.montant || 0);
-          const cls = f.type === "in" ? "td-entree" : "td-sortie";
-          const sign = f.type === "in" ? "+" : "-";
-          return `<tr><td>${f.date || "-"}</td><td class="${cls}">${f.type === "in" ? "Entrée" : "Sortie"}</td><td>${f.cat || "-"}</td><td>${f.motif || "-"}</td><td class="${cls}">${sign} ${fPrix(amt)}</td></tr>`;
-        })
-        .join("") || "<tr><td colspan='5'>Aucune opération enregistrée pour ce mois.</td></tr>";
-  };
-}
-
-if (typeof window.printPointMensuel !== "function") {
-  window.printPointMensuel = function () {
-    const input = document.getElementById("f_point_mois");
-    const mois = (input && input.value) || new Date().toISOString().slice(0, 7);
-    const ops = [...(db.finances || [])]
-      .filter((f) => String(f.date || "").startsWith(mois))
-      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
-
-    let mIn = 0;
-    let mOut = 0;
-    const rows = ops.map((f) => {
-      const amt = Number(f.montant || 0);
-      if (f.type === "in") mIn += amt;
-      else mOut += amt;
-      const sign = f.type === "in" ? "+" : "-";
-      return `<tr><td>${f.date || "-"}</td><td>${f.type === "in" ? "Entrée" : "Sortie"}</td><td>${f.cat || "-"}</td><td>${f.motif || "-"}</td><td>${sign} ${fPrix(amt)}</td></tr>`;
-    });
-
-    document.getElementById("printArea").innerHTML = `
-      ${typeof renderDocumentHeader === "function" ? renderDocumentHeader("Point Mensuel des Finances", `Période : ${mois}`) : `<h2>Point Mensuel — ${mois}</h2>`}
-      <p><strong>Entrées :</strong> ${fPrix(mIn)} | <strong>Sorties :</strong> ${fPrix(mOut)} | <strong>Solde :</strong> ${fPrix(mIn - mOut)}</p>
-      <table><thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead><tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération.</td></tr>"}</tbody></table>
-      ${typeof renderCachetCG === "function" ? renderCachetCG(true) : ""}
+    return `
+      <tr>
+        <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
+        <td>${escapeHtml(s.branche)}</td>
+        <td>${escapeHtml(s.parent_nom || "Parent")} — ${escapeHtml(s.parent_tel || "Pas de numéro")}</td>
+        <td>
+          ${waHref
+            ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-success">WhatsApp</a>`
+            : `<span class="badge badge-gray">Numéro absent</span>`}
+        </td>
+      </tr>
     `;
-    window.print();
-  };
+  }).join("");
 }
+
+function copyAnnonceMessage() {
+  const txt = document.getElementById("annonceTextArea").value || "";
+  if (!txt.trim()) {
+    alert("Le message est vide.");
+    return;
+  }
+  navigator.clipboard?.writeText(txt);
+  alert("Message copié !");
+}
+
+/* 10. PARAMÈTRES & EXPORTS */
+function renderSettingsInputs() {
+  if (!isCG()) return;
+  const st = db.settings;
+  document.getElementById("cfg_cg_nom").value = st.cg_nom || "";
+  document.getElementById("cfg_cg_tel").value = st.cg_tel || "";
+  document.getElementById("cfg_wave_url").value = st.wave_url || "";
+  document.getElementById("cfg_cot_j_total").value = st.cot_j_total ?? 2500;
+  document.getElementById("cfg_cot_j_ascci").value = st.cot_j_ascci ?? 2085;
+  document.getElementById("cfg_cot_j_groupe").value = st.cot_j_groupe ?? 415;
+  document.getElementById("cfg_cot_mens_j").value = st.cot_mens_j ?? 500;
+  document.getElementById("cfg_pin_cg").value = (st.pins && st.pins.cg) || "1111";
+  document.getElementById("cfg_pin_fin").value = (st.pins && st.pins.financier) || "2222";
+  document.getElementById("cfg_pin_cu").value = (st.pins && st.pins.cu) || "3333";
+  document.getElementById("cfg_cachet_actif").value = String(Boolean(st.cachet_actif));
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  if (!isCG()) return;
+  db.settings = {
+    ...db.settings,
+    cg_nom: document.getElementById("cfg_cg_nom").value.trim(),
+    cg_tel: document.getElementById("cfg_cg_tel").value.trim(),
+    wave_url: document.getElementById("cfg_wave_url").value.trim(),
+    cot_j_total: Number(document.getElementById("cfg_cot_j_total").value || 0),
+    cot_j_ascci: Number(document.getElementById("cfg_cot_j_ascci").value || 0),
+    cot_j_groupe: Number(document.getElementById("cfg_cot_j_groupe").value || 0),
+    cot_mens_j: Number(document.getElementById("cfg_cot_mens_j").value || 0),
+    cachet_actif: document.getElementById("cfg_cachet_actif").value === "true",
+    pins: {
+      cg: document.getElementById("cfg_pin_cg").value.trim() || "1111",
+      financier: document.getElementById("cfg_pin_fin").value.trim() || "2222",
+      cu: document.getElementById("cfg_pin_cu").value.trim() || "3333"
+    }
+  };
+  await persistDb("Mise à jour paramètres", "Configuration du groupe");
+  alert("Paramètres enregistrés !");
+}
+
+function exportBackupJson() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `obion-erp-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importBackupJson(e) {
+  if (!isCG()) return;
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  try {
+    const parsed = JSON.parse(text);
+    db = normalizeDb(parsed);
+    await persistDb("Restauration sauvegarde JSON", file.name);
+    alert("Sauvegarde restaurée avec succès !");
+  } catch (err) {
+    alert("Fichier JSON invalide.");
+  }
+}
+
+function exportEffectifsCsv() {
+  const list = getScopedScouts();
+  const headers = ["Nom", "Prenoms", "Branche", "Sexe", "Tenue", "Parent", "Telephone", "Matricule"];
+  const lines = [
+    headers.join(";"),
+    ...list.map((s) => [
+      s.nom, s.prenom, s.branche, s.sexe,
+      s.tenue_complete ? "Complete" : "Incomplete",
+      s.parent_nom || "", s.parent_tel || "", s.matricule || ""
+    ].map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(";"))
+  ];
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `effectifs-obion-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* MODALE */
+function openModal(title, htmlContent) {
+  document.getElementById("modalTitle").textContent = title;
+  document.getElementById("modalBody").innerHTML = htmlContent;
+  document.getElementById("genericModal").classList.add("open");
+}
+
+function closeModal() {
+  document.getElementById("genericModal").classList.remove("open");
+}
+
+/* DÉMARRAGE */
+window.addEventListener("DOMContentLoaded", () => {
+  startRealtimeSync();
+  if (currentUser) {
+    showAppShell();
+  } else {
+    toggleLoginBranch();
+  }
+});

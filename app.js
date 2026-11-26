@@ -1,4 +1,3 @@
-
 const message = document.getElementById("message");
 
 let jeunes = JSON.parse(localStorage.getItem("obion_jeunes") || "[]");
@@ -178,19 +177,20 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
   bouton.addEventListener("click", () => {
     const rubrique = bouton.dataset.name;
 
-   if (rubrique === "Jeunes") {
-  jeuneEnModification = null;
-  afficherJeunes();
-} else if (rubrique === "Présences") {
-  afficherPresences();
-} else if (rubrique === "Cotisations") {
-  afficherCotisationsObion();
-} else if (rubrique === "Chefs") {
-  chefEnModification = null;
-  afficherChefsObion();
-     } else if (rubrique === "Activités") {
-  afficherActivitesObion();
-} else if (rubrique === "Accueil") {
+    if (rubrique === "Jeunes") {
+      jeuneEnModification = null;
+      afficherJeunes();
+    } else if (rubrique === "Présences") {
+      afficherPresences();
+    } else if (rubrique === "Cotisations") {
+      afficherCotisationsObion();
+    } else if (rubrique === "Chefs") {
+      chefEnModification = null;
+      afficherChefsObion();
+    } else if (rubrique === "Activités") {
+      activiteEnModification = null;
+      afficherActivitesObion();
+    } else if (rubrique === "Accueil") {
       location.reload();
     } else {
       message.innerHTML = `
@@ -604,13 +604,72 @@ let activitesObion = JSON.parse(
   localStorage.getItem("obion_activites") || "[]"
 );
 
+let activiteEnModification = null;
+
 function sauvegarderActivitesObion() {
   localStorage.setItem(
     "obion_activites",
     JSON.stringify(activitesObion)
   );
 }
-const activiteModif =
+
+function afficherActivitesObion() {
+  const branches = [
+    "Oisillons",
+    "Louveteau",
+    "Troupier",
+    "Cheminot",
+    "Routier"
+  ];
+
+  const echapper = (texte) =>
+    String(texte || "").replace(/[&<>"']/g, (caractere) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[caractere]);
+
+  message.innerHTML = `
+    <h2>Gestion des activités</h2>
+    <p>Créer une activité, suivre les participations et gérer le budget.</p>
+
+    <form id="formActivite">
+      <label>Nom de l’activité *</label>
+      <input name="titre" required placeholder="Ex. Sortie de groupe">
+
+      <label>Date de l’activité *</label>
+      <input name="date" type="date" required>
+
+      <label>Branches concernées *</label>
+      <div>
+        ${branches.map((branche) => `
+          <label style="display:block; margin:8px 0;">
+            <input type="checkbox" name="branches" value="${branche}">
+            ${branche}
+          </label>
+        `).join("")}
+      </div>
+
+      <label>Participation financière par jeune (F CFA)</label>
+      <input name="montantJeune" type="number" min="0" value="0" required>
+
+      <label>Participation financière par chef (F CFA)</label>
+      <input name="montantChef" type="number" min="0" value="0" required>
+
+      <label>Description</label>
+      <textarea name="description" placeholder="Lieu, programme, informations..."></textarea>
+
+      <button type="submit">Créer l’activité</button>
+    </form>
+
+    <hr>
+    <h3>Activités enregistrées</h3>
+    <div id="listeActivites"></div>
+  `;
+
+  const activiteModif =
     activiteEnModification !== null ? activitesObion[activiteEnModification] : null;
 
   if (activiteModif) {
@@ -638,60 +697,6 @@ const activiteModif =
     });
     boutonValider.insertAdjacentElement("afterend", boutonAnnuler);
   }
-let activiteEnModification = null;
-function afficherActivitesObion() {
-  const branches = [
-    "Oisillons",
-    "Louveteau",
-    "Troupier",
-    "Cheminot",
-    "Routier"
-  ];
-
-  const echapper = (texte) =>
-    String(texte || "").replace(/[&<>"']/g, (caractere) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[caractere]);
-
-  message.innerHTML = `
-    <h2>Gestion des activités</h2>
-    <p>Créer une activité et choisir les branches concernées.</p>
-
-    <form id="formActivite">
-      <label>Nom de l’activité *</label>
-      <input name="titre" required placeholder="Ex. Sortie de groupe">
-
-      <label>Date de l’activité *</label>
-      <input name="date" type="date" required>
-
-      <label>Branches concernées *</label>
-      <div>
-        ${branches.map((branche) => `
-          <label style="display:block; margin:8px 0;">
-            <input type="checkbox" name="branches" value="${branche}">
-            ${branche}
-          </label>
-        `).join("")}
-      </div>
-<label>Participation financière par jeune (F CFA)</label>
-<input name="montantJeune" type="number" min="0" value="0" required>
-
-<label>Participation financière par chef (F CFA)</label>
-<input name="montantChef" type="number" min="0" value="0" required>
-      <label>Description</label>
-      <textarea name="description" placeholder="Lieu, programme, informations..."></textarea>
-
-      <button type="submit">Créer l’activité</button>
-    </form>
-
-    <hr>
-    <h3>Activités enregistrées</h3>
-    <div id="listeActivites"></div>
-  `;
 
   document.getElementById("formActivite").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -704,7 +709,7 @@ function afficherActivitesObion() {
       return;
     }
 
-  const participants = jeunes
+    const participants = jeunes
       .filter((jeune) => branchesChoisies.includes(jeune.branche))
       .map((jeune) => ({
         nom: jeune.nom,
@@ -712,7 +717,7 @@ function afficherActivitesObion() {
         paye: 0
       }));
 
- const nouvelleActivite = {
+    const nouvelleActivite = {
       id: Date.now(),
       titre: formulaire.get("titre").trim(),
       date: formulaire.get("date"),
@@ -726,15 +731,17 @@ function afficherActivitesObion() {
         fonction: chef.fonction,
         unite: chef.unite || "Groupe",
         paye: 0
-      }))
+      })),
+      depenses: []
     };
 
-  if (activiteEnModification !== null && activitesObion[activiteEnModification]) {
+    if (activiteEnModification !== null && activitesObion[activiteEnModification]) {
       const ancienne = activitesObion[activiteEnModification];
       const anciensJeunes = ancienne.participants || [];
       const anciensChefs = ancienne.chefsParticipants || [];
 
       nouvelleActivite.id = ancienne.id;
+      nouvelleActivite.depenses = Array.isArray(ancienne.depenses) ? ancienne.depenses : [];
 
       nouvelleActivite.participants = nouvelleActivite.participants.map((p) => {
         const trouve = anciensJeunes.find((aj) => aj.nom === p.nom && aj.branche === p.branche);
@@ -751,6 +758,7 @@ function afficherActivitesObion() {
     } else {
       activitesObion.push(nouvelleActivite);
     }
+
     sauvegarderActivitesObion();
     afficherActivitesObion();
   });
@@ -762,8 +770,7 @@ function afficherActivitesObion() {
     return;
   }
 
- 
- liste.innerHTML = activitesObion.map((activite, indexActivite) => {
+  liste.innerHTML = activitesObion.map((activite, indexActivite) => {
     const listeJeunes = activite.participants || [];
     const listeChefs = activite.chefsParticipants || [];
 
@@ -783,6 +790,14 @@ function afficherActivitesObion() {
     const montantPaye = montantPayeJeunes + montantPayeChefs;
     const reste = Math.max(0, montantDu - montantPaye);
 
+    const listeDepenses = activite.depenses || [];
+    const totalDepenses = listeDepenses.reduce(
+      (total, depense) => total + Number(depense.montant || 0),
+      0
+    );
+
+    const soldeNet = montantPaye - totalDepenses;
+
     return `
       <div style="border:1px solid #ddd; padding:12px; margin:12px 0; border-radius:8px;">
         <h3>${echapper(activite.titre)}</h3>
@@ -793,6 +808,8 @@ function afficherActivitesObion() {
         <p><strong>Total prévu :</strong> ${montantDu.toLocaleString("fr-FR")} F CFA</p>
         <p><strong>Total payé :</strong> ${montantPaye.toLocaleString("fr-FR")} F CFA</p>
         <p><strong>Reste à recevoir :</strong> ${reste.toLocaleString("fr-FR")} F CFA</p>
+        <p><strong>Total dépenses :</strong> ${totalDepenses.toLocaleString("fr-FR")} F CFA</p>
+        <p><strong>Solde net (Encaissé - Dépenses) :</strong> ${soldeNet.toLocaleString("fr-FR")} F CFA</p>
 
         <details>
           <summary>Jeunes participants et paiements</summary>
@@ -850,12 +867,49 @@ function afficherActivitesObion() {
           }).join("")}
         </details>
 
-  <p>${echapper(activite.description)}</p>
+        <details style="margin-top:8px;">
+          <summary>Dépenses de l’activité (${totalDepenses.toLocaleString("fr-FR")} F CFA)</summary>
+          <div style="padding:8px 0;">
+            <input
+              type="text"
+              placeholder="Libellé (ex. Transport, eau, goûter)"
+              id="libelleDepense_${indexActivite}"
+            >
+            <input
+              type="number"
+              min="0"
+              placeholder="Montant (F CFA)"
+              id="montantDepense_${indexActivite}"
+            >
+            <button
+              type="button"
+              class="btnAjouterDepense"
+              data-index="${indexActivite}"
+            >Ajouter la dépense</button>
+          </div>
+          ${listeDepenses.length === 0
+            ? "<p>Aucune dépense enregistrée.</p>"
+            : listeDepenses.map((depense, indexDepense) => `
+              <div style="border-top:1px solid #eee; padding:6px 0;">
+                <strong>${echapper(depense.libelle)}</strong> : ${Number(depense.montant || 0).toLocaleString("fr-FR")} F CFA
+                <button
+                  type="button"
+                  class="btnSupprimerDepense"
+                  data-activite="${indexActivite}"
+                  data-depense="${indexDepense}"
+                  style="margin-left:8px;"
+                >Supprimer</button>
+              </div>
+            `).join("")}
+        </details>
+
+        <p>${echapper(activite.description)}</p>
         <button type="button" class="btnModifierActivite" data-index="${indexActivite}">Modifier l’activité</button>
         <button type="button" class="btnSupprimerActivite" data-index="${indexActivite}">Supprimer l’activité</button>
       </div>
     `;
   }).join("");
+
   document.querySelectorAll(".btnModifierActivite").forEach((bouton) => {
     bouton.addEventListener("click", () => {
       activiteEnModification = Number(bouton.dataset.index);
@@ -863,7 +917,8 @@ function afficherActivitesObion() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   });
-document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
+
+  document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
     bouton.addEventListener("click", () => {
       const indexActivite = Number(bouton.dataset.index);
       const activiteCible = activitesObion[indexActivite];
@@ -871,7 +926,16 @@ document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
       if (!activiteCible) {
         return;
       }
-document.querySelectorAll(".btnAjouterDepense").forEach((bouton) => {
+
+      if (confirm("Supprimer l’activité « " + activiteCible.titre + " » ?")) {
+        activitesObion.splice(indexActivite, 1);
+        sauvegarderActivitesObion();
+        afficherActivitesObion();
+      }
+    });
+  });
+
+  document.querySelectorAll(".btnAjouterDepense").forEach((bouton) => {
     bouton.addEventListener("click", () => {
       const indexActivite = Number(bouton.dataset.index);
       const champLibelle = document.getElementById("libelleDepense_" + indexActivite);
@@ -919,14 +983,8 @@ document.querySelectorAll(".btnAjouterDepense").forEach((bouton) => {
       afficherActivitesObion();
     });
   });
-      if (confirm("Supprimer l’activité « " + activiteCible.titre + " » ?")) {
-        activitesObion.splice(indexActivite, 1);
-        sauvegarderActivitesObion();
-        afficherActivitesObion();
-      }
-    });
-  });
- document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
+
+  document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
     champ.addEventListener("change", () => {
       const indexActivite = Number(champ.dataset.activite);
       const indexParticipant = Number(champ.dataset.participant);
@@ -962,4 +1020,3 @@ document.querySelectorAll(".btnAjouterDepense").forEach((bouton) => {
     });
   });
 }
-

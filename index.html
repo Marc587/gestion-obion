@@ -413,6 +413,50 @@
                 <div class="card" style="text-align:center; border-bottom: 4px solid #2980b9;"><h4>Part ASCCI / Caisse Groupe</h4><p id="f_split_coti" style="font-size:0.9rem; margin-top:6px; font-weight:bold;">ASCCI : 0 FCFA<br>Caisse : 0 FCFA</p></div>
             </div>
 
+            <div class="card" style="border-left: 5px solid #0a1f44;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+                    <h2 class="card-header" style="margin-bottom:0; padding-bottom:0; border-bottom:none;">📆 Point Mensuel des Finances</h2>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <input type="month" id="f_point_mois" onchange="renderPointMensuel()">
+                        <button class="btn btn-secondary" onclick="printPointMensuel()">🖨️ Imprimer le point du mois</button>
+                    </div>
+                </div>
+
+                <div class="grid-form" style="margin-bottom:15px;">
+                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #27ae60;">
+                        <small>Entrées du mois</small>
+                        <h3 style="color:#27ae60; margin-top:5px;" id="pm_in">0 FCFA</h3>
+                    </div>
+                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #c0392b;">
+                        <small>Sorties du mois</small>
+                        <h3 style="color:#c0392b; margin-top:5px;" id="pm_out">0 FCFA</h3>
+                    </div>
+                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #0a1f44;">
+                        <small>Solde du mois</small>
+                        <h3 style="color:#0a1f44; margin-top:5px;" id="pm_solde">0 FCFA</h3>
+                    </div>
+                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #2980b9;">
+                        <small>Cotisations mensuelles du mois</small>
+                        <p style="font-size:0.88rem; font-weight:bold; margin-top:6px;" id="pm_cotis">Jeunes : 0/0 • Chefs : 0/0</p>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Catégorie</th>
+                                <th>Motif</th>
+                                <th>Montant</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pointMensuelList"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="card" style="border-left: 5px solid #2980b9;">
                 <h2 class="card-header">💳 Tarifs des Cotisations (Fixés par le Financier / Trésorier)</h2>
                 <div class="grid-form">
@@ -425,6 +469,37 @@
                     <div class="form-group"><label>Cotisation Mensuelle Chef (FCFA)</label><input type="number" id="fin_cot_mens_c" min="0" value="0"></div>
                 </div>
                 <button class="btn btn-main" style="width:auto; margin-top:12px; background:#2980b9;" onclick="saveTarifsFinancier()">💾 Enregistrer les cotisations mensuelles</button>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #8e44ad;">
+                <h2 class="card-header">✅ Validation Rapide des Cotisations (Annuelles & Mensuelles)</h2>
+                <div class="grid-form" style="margin-bottom:12px;">
+                    <div class="form-group">
+                        <label>Mois suivi (pour cotisations mensuelles)</label>
+                        <input type="month" id="cot_mois_cible" onchange="renderCotisationsValidation()">
+                    </div>
+                    <div class="form-group">
+                        <label>Filtrer par catégorie</label>
+                        <select id="cot_filtre_type" onchange="renderCotisationsValidation()">
+                            <option value="tous">Tous (Jeunes & Maîtrise)</option>
+                            <option value="jeunes">Jeunes uniquement</option>
+                            <option value="chefs">Maîtrise uniquement</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Membre</th>
+                                <th>Cotisation Annuelle</th>
+                                <th>Cotisation Mensuelle (mois choisi)</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cotisationsValidationList"></tbody>
+                    </table>
+                </div>
             </div>
 
             <div class="card" style="border-left: 5px solid #27ae60;">

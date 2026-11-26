@@ -1,1 +1,404 @@
-<!doctype html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#173f35"><title>Gestion Obion</title><link rel="stylesheet" href="style.css"></head><body><header><div class="logo">GO</div><div><h1>Groupe Obion</h1><p>Gestion du groupe scout</p></div></header><main><section class="welcome"><small>TABLEAU DE BORD</small><h2>Bonjour, Chef de Groupe</h2><p>Retrouve rapidement les informations essentielles de ton groupe.</p></section><section class="stats"><article><span>Jeunes</span><b>—</b></article><article><span>Chefs</span><b>—</b></article><article><span>Cotisations à suivre</span><b>—</b></article><article><span>Activités à venir</span><b>—</b></article></section><h2>Gestion quotidienne</h2><p class="muted">Choisis une rubrique</p><section class="tiles"><button data-name="Jeunes">👥<b>Jeunes</b><small>Dossiers et import Excel</small></button><button data-name="Chefs">🧭<b>Chefs</b><small>Chefs d’unité et assistants</small></button><button data-name="Présences">✓<b>Présences</b><small>Appel et absences</small></button><button data-name="Cotisations">₣<b>Cotisations</b><small>ASCCI et groupe</small></button><button data-name="Activités">📅<b>Activités</b><small>Prix et paiements</small></button><button data-name="Finances">▤<b>Finances</b><small>Recettes et dépenses</small></button><button data-name="Progression">★<b>Progression</b><small>Compétences et badges</small></button><button data-name="Documents PDF">📄<b>Documents PDF</b><small>Listes et rapports</small></button></section><section id="message"><b>Version de départ</b><p>Les rubriques sont préparées. Nous allons les rendre fonctionnelles petit à petit, en commençant par les jeunes et l’import de liste.</p></section></main><nav><button data-name="Accueil">⌂<small>Accueil</small></button><button data-name="Jeunes">♧<small>Jeunes</small></button><button data-name="Présences">✓<small>Présences</small></button><button data-name="Cotisations">₣<small>Cotisations</small></button><button data-name="Plus">⋯<small>Plus</small></button></nav><script src="app.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERP Scout - Groupe OBION</title>
+
+    <link rel="icon" type="image/jpeg" href="logo.jpg">
+    <link rel="apple-touch-icon" href="logo.jpg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#8e44ad">
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --c-cg: #8e44ad; --c-route: #c0392b; --c-chemin: #d35400;
+            --c-troupe: #27ae60; --c-meute: #f39c12; --c-oisillon: #e84393;
+            --bg-body: #f4f7f6; --white: #ffffff; --text-main: #0a1f44;
+            --shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
+        body { background: var(--bg-body); color: var(--text-main); padding-bottom: 50px; }
+
+        #loaderScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; }
+        .spinner { border: 5px solid #f3f3f3; border-top: 5px solid var(--c-cg); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #loginScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--text-main); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 15px; }
+        .login-box { background: white; padding: 35px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 100%; max-width: 400px; text-align: center; }
+        .login-logo { width: 110px; height: 110px; object-fit: cover; border-radius: 50%; margin-bottom: 15px; box-shadow: var(--shadow); border: 3px solid var(--white); }
+        .login-box h1 { color: var(--c-cg); margin-bottom: 5px; font-size: 1.8rem; }
+        .login-box p { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+
+        #appContainer { display: none; }
+        header { background: var(--text-main); color: white; padding: 15px; text-align: center; position: relative; display: flex; flex-direction: column; align-items: center; }
+        .header-logo { width: 60px; height: 60px; object-fit: cover; border-radius: 50%; margin-bottom: 10px; border: 2px solid white; }
+        header h1 { font-size: 1.4rem; }
+        header p { color: #bdc3c7; font-size: 0.85rem; margin-top: 5px; }
+        .btn-logout { position: absolute; top: 15px; right: 15px; background: #e74c3c; color: white; border: none; padding: 6px 14px; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 0.8rem; }
+
+        .tab-menu { display: flex; flex-wrap: wrap; background: white; box-shadow: var(--shadow); position: sticky; top: 0; z-index: 100; padding: 10px; justify-content: center; gap: 8px; }
+        .tab-btn { padding: 8px 12px; border: none; border-radius: 20px; background: #eee; font-weight: bold; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem; }
+        .tab-btn:hover { background: #ddd; }
+        .tab-btn.active { background: var(--text-main); color: white; }
+
+        .container { max-width: 1200px; margin: 20px auto; padding: 0 15px; }
+        .hidden { display: none !important; }
+
+        .card { background: var(--white); padding: 20px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 20px; }
+        .card-header { font-size: 1.2rem; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #eee; color: var(--text-main); }
+        .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-group label { font-weight: 600; font-size: 0.85rem; color: #555; }
+        input, select, textarea { padding: 10px; border: 1px solid #ccc; border-radius: 6px; outline: none; font-size: 0.95rem; font-family: inherit; }
+        input[readonly], select[readonly] { background: #f0f0f0; }
+
+        .btn { padding: 10px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: 0.2s; text-decoration: none; font-size: 0.9rem; }
+        .btn:hover { opacity: 0.9; }
+        .btn-main { background: #3498db; width: 100%; margin-top: 15px; font-size: 1rem; }
+        .btn-danger { background: #e74c3c; }
+        .btn-warning { background: #e67e22; }
+        .btn-success { background: #27ae60; }
+        .btn-secondary { background: #7f8c8d; }
+        .btn-edit { background: #f39c12; }
+
+        .progress-bg { background: #eee; height: 10px; border-radius: 5px; width: 100%; overflow: hidden; margin-top: 5px; }
+        .progress-bar { height: 100%; transition: width 0.3s; background: #3498db; }
+
+        .list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        .item-card { background: white; padding: 15px; border-radius: 10px; box-shadow: var(--shadow); border-left: 6px solid #ccc; position: relative; }
+        .b-Route { border-left-color: var(--c-route) !important; } .b-Route .b-badge, .b-Route .progress-bar { background: var(--c-route) !important; }
+        .b-Chemin { border-left-color: var(--c-chemin) !important; } .b-Chemin .b-badge, .b-Chemin .progress-bar { background: var(--c-chemin) !important; }
+        .b-Troupe { border-left-color: var(--c-troupe) !important; } .b-Troupe .b-badge, .b-Troupe .progress-bar { background: var(--c-troupe) !important; }
+        .b-Meute { border-left-color: var(--c-meute) !important; } .b-Meute .b-badge, .b-Meute .progress-bar { background: var(--c-meute) !important; }
+        .b-Oisillon { border-left-color: var(--c-oisillon) !important; } .b-Oisillon .b-badge, .b-Oisillon .progress-bar { background: var(--c-oisillon) !important; }
+        .b-CG { border-left-color: var(--c-cg) !important; }
+        .b-badge { position: absolute; top: 15px; right: 15px; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; background: #ccc; }
+        .item-card h3 { margin-bottom: 5px; font-size: 1.1rem; padding-right: 75px; }
+        .item-card p { font-size: 0.85rem; color: #555; margin-bottom: 4px; }
+        .item-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; border-top: 1px solid #eee; padding-top: 10px; }
+
+        .status-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+        .status-green { background: #27ae60; box-shadow: 0 0 5px #27ae60; }
+        .status-red { background: #e74c3c; box-shadow: 0 0 5px #e74c3c; }
+        .wa-btn { background: #25D366; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; }
+
+        .table-responsive { overflow-x: auto; background: white; border-radius: 8px; box-shadow: var(--shadow); }
+        table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 0.9rem; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; }
+        .td-entree { color: #27ae60; font-weight: bold; }
+        .td-sortie { color: #c0392b; font-weight: bold; }
+
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 10px; }
+        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto; position: relative; }
+        .close-modal { position: absolute; top: 15px; right: 15px; font-size: 1.5rem; cursor: pointer; border: none; background: none; color: #888; }
+
+        @media print {
+            body * { visibility: hidden; }
+            #printArea, #printArea * { visibility: visible; }
+            #printArea { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; background: white; }
+            .no-print { display: none !important; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loaderScreen">
+    <img src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
+    <div class="spinner"></div>
+    <h2 style="color:var(--text-main);">Connexion au cloud ASCCI...</h2>
+</div>
+
+<div id="loginScreen" class="no-print">
+    <div class="login-box">
+        <img src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
+        <h1>Groupe OBION</h1>
+        <p>Portail de Connexion - Maîtrise<br><small>St Bernard d'Adiopodoumé KM17</small></p>
+        <div class="form-group" style="text-align: left; margin-bottom: 15px;">
+            <label>Utilisateur :</label>
+            <select id="login_user"></select>
+        </div>
+        <div class="form-group" style="text-align: left; margin-bottom: 20px;">
+            <label>Code PIN (4 chiffres) :</label>
+            <input type="password" id="login_pin" maxlength="4" placeholder="****" style="text-align: center; font-size: 1.2rem; letter-spacing: 5px;">
+        </div>
+        <button class="btn btn-main" style="background: var(--text-main);" onclick="login()">Se Connecter</button>
+        <p id="login_error" style="color: #e74c3c; margin-top: 15px; font-weight: bold; display: none;">Code PIN incorrect.</p>
+    </div>
+</div>
+
+<div id="appContainer">
+    <header class="no-print">
+        <img src="logo.jpg" alt="Logo OBION" class="header-logo" onerror="this.style.display='none'">
+        <h1>ERP SCOUT - OBION</h1>
+        <p>St Bernard d'Adiopodoumé KM17</p>
+        <p style="margin-top: 10px; font-size: 0.9rem; background: rgba(255,255,255,0.1); padding: 5px 15px; border-radius: 15px;">
+            Connecté : <span id="current_user_display" style="color:var(--c-meute); font-weight:bold;"></span>
+        </p>
+        <button class="btn-logout" onclick="logout()">Déconnexion</button>
+    </header>
+
+    <div class="tab-menu no-print">
+        <button class="tab-btn active" onclick="nav('effectifs')" id="tab_effectifs">📋 Effectifs</button>
+        <button class="tab-btn" onclick="nav('pedagogie')" id="tab_pedagogie">🎓 Pédagogie</button>
+        <button class="tab-btn" onclick="nav('camps')" id="tab_camps">🏕️ Camps & WE</button>
+        <button class="tab-btn" onclick="nav('presences')" id="tab_presences">📅 Appels</button>
+        <button class="tab-btn" onclick="nav('materiel')" id="tab_materiel">⛺ Intendance</button>
+        <button class="tab-btn" onclick="nav('parrains')" id="tab_parrains">🤝 Parrains</button>
+        <button class="tab-btn admin-only" onclick="nav('maitrise')" id="tab_maitrise">👔 Maîtrise</button>
+        <button class="tab-btn admin-only" onclick="nav('finances')" id="tab_finances">💰 Finances</button>
+        <button class="tab-btn admin-only" onclick="nav('parametres')" id="tab_parametres">⚙️ Paramètres</button>
+    </div>
+
+    <div class="container no-print">
+
+        <div id="sec-effectifs" class="section">
+            <div class="card admin-only" style="background: #e8f5e9; border-left: 5px solid #27ae60;">
+                <h3 style="color: #27ae60; font-size: 1.1rem; margin-bottom: 5px;">📥 Importation massive (Fichier CSV)</h3>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="downloadCsvTemplate()">1. Télécharger le modèle</button>
+                    <input type="file" id="csvFileInput" accept=".csv" style="display:none;" onchange="importScoutsCSV(event)">
+                    <button class="btn btn-success" onclick="document.getElementById('csvFileInput').click()">2. Importer le fichier</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 class="card-header" id="formTitleScout">➕ Inscrire un jeune</h2>
+                <input type="hidden" id="s_id" value="">
+                <div class="grid-form">
+                    <div class="form-group"><label>Matricule *</label><input type="text" id="s_mat"></div>
+                    <div class="form-group"><label>Nom complet *</label><input type="text" id="s_nom"></div>
+                    <div class="form-group"><label>Date de Naissance *</label><input type="date" id="s_ddn" onchange="autoBranch()">
+                        <span id="s_age_hint" style="color:var(--c-troupe); font-weight:bold; font-size:0.8rem;"></span>
+                    </div>
+                    <div class="form-group"><label>Branche (Auto)</label><input type="text" id="s_branche" readonly></div>
+                    <div class="form-group"><label>Sous-unité (Patrouille / Sizaine)</label><input type="text" id="s_sousunite"></div>
+                    <div class="form-group"><label>Rôle dans l'unité</label><input type="text" id="s_role"></div>
+                    <div class="form-group"><label>Contact Parent *</label><input type="tel" id="s_tel" placeholder="N° du parent"></div>
+                    <div class="form-group"><label>Contact Jeune (Chemin/Route)</label><input type="tel" id="s_tel_perso" placeholder="Facultatif"></div>
+                    <div class="form-group"><label>Parrain / Marraine</label><input type="text" id="s_parrain"></div>
+                    <div class="form-group"><label>Groupe Sanguin</label><select id="s_sang"><option>Inconnu</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
+                    <div class="form-group"><label>Allergies / Médicaments</label><input type="text" id="s_medical"></div>
+                    <div class="form-group" style="grid-column: 1/-1;"><label>Contact Urgence</label><input type="text" id="s_urgence"></div>
+                </div>
+                <button class="btn btn-main" onclick="saveScout()">✅ Enregistrer le Dossier</button>
+            </div>
+
+            <div class="card" style="padding: 10px 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+                <input type="text" id="searchScout" placeholder="🔍 Rechercher un nom..." style="flex:1" oninput="renderScouts()">
+                <select id="filterScout" onchange="renderScouts()" class="admin-only"><option value="Tous">Toutes les branches</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select>
+            </div>
+            <div class="list-grid" id="scoutList"></div>
+        </div>
+
+        <div id="sec-pedagogie" class="section hidden">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-bottom: 2px solid #eee; padding-bottom:10px; margin-bottom: 15px;">
+                    <h2 style="font-size: 1.2rem; color: var(--text-main);">🎓 Tableau de Bord Pédagogique</h2>
+                    <button class="btn btn-warning admin-only" onclick="generateCommandes()">🛒 Commande d'Insignes</button>
+                </div>
+
+                <div style="margin-bottom: 15px;" class="admin-only">
+                    <label style="font-weight:bold;">Filtrer par branche : </label>
+                    <select id="filterPeda" onchange="renderPedagogie()" style="padding: 8px; border-radius: 5px;">
+                        <option value="Toutes">Vue Globale</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option>
+                    </select>
+                </div>
+                <div class="table-responsive">
+                    <table id="tablePeda">
+                        <thead><tr><th>Matricule</th><th>Nom & Unité</th><th>Totem</th><th>Progression Globale</th><th>Objectif (En route vers)</th><th>Action</th></tr></thead>
+                        <tbody id="pedaList"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="sec-camps" class="section hidden">
+            <div class="card">
+                <h2 class="card-header">🏕️ Organiser un Camp / Week-end</h2>
+                <div class="grid-form">
+                    <div class="form-group"><label>Titre de l'événement *</label><input type="text" id="camp_titre" placeholder="Ex: Camp de Pâques 2026"></div>
+                    <div class="form-group"><label>Lieu *</label><input type="text" id="camp_lieu"></div>
+                    <div class="form-group"><label>Date de Début *</label><input type="date" id="camp_debut"></div>
+                    <div class="form-group"><label>Date de Fin *</label><input type="date" id="camp_fin"></div>
+                    <div class="form-group admin-only"><label>Branche *</label><select id="camp_branche"><option value="Toutes">Toutes (Camp de Groupe)</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
+                    <div class="form-group"><label>Frais par jeune (FCFA) *</label><input type="number" id="camp_frais" value="0"></div>
+                </div>
+                <button class="btn btn-main" style="background:#d35400;" onclick="saveCamp()">✅ Créer / Sauvegarder le Camp</button>
+            </div>
+            <div class="list-grid" id="campList"></div>
+        </div>
+
+        <div id="sec-presences" class="section hidden">
+            <div class="card">
+                <h2 class="card-header">📅 Planifier ou Faire l'Appel (Réunions)</h2>
+                <div class="grid-form">
+                    <div class="form-group"><label>Date *</label><input type="date" id="p_date"></div>
+                    <div class="form-group"><label>Titre de l'activité *</label><input type="text" id="p_titre"></div>
+                    <div class="form-group admin-only"><label>Branche convoquée *</label><select id="p_branche" onchange="genAppel()"><option value="">Sélectionner...</option><option value="Toutes">Tout le groupe</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
+                    <div class="form-group"><label>Chef Responsable *</label><input type="text" id="p_resp" readonly style="background:#eee; font-weight:bold;"></div>
+                </div>
+                <button class="btn btn-secondary" style="margin-top:15px;" onclick="genAppel()">Lister les scouts pour l'appel</button>
+                <div id="appelBox" style="margin-top: 15px; border: 1px solid #ccc; padding: 10px; border-radius: 8px; max-height: 300px; overflow-y:auto; display:none;"></div>
+                <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="savePresence()">✅ Valider l'appel</button>
+            </div>
+            <div class="list-grid" id="presenceList"></div>
+        </div>
+
+        <div id="sec-materiel" class="section hidden">
+            <div class="card">
+                <h2 class="card-header">⛺ Inventaire du Matériel</h2>
+                <div class="grid-form">
+                    <div class="form-group"><label>Nom de l'article *</label><input type="text" id="m_nom"></div>
+                    <div class="form-group"><label>Catégorie</label><select id="m_cat"><option>Tentes et Abris</option><option>Cuisine</option><option>Outils Pionnérisme</option><option>Pharmacie</option><option>Pédagogie / Jeux</option></select></div>
+                    <div class="form-group"><label>Quantité</label><input type="number" id="m_qte" value="1"></div>
+                    <div class="form-group"><label>État</label><select id="m_etat"><option>Neuf</option><option>Bon</option><option>Moyen</option><option>À réparer</option></select></div>
+                    <div class="form-group" style="grid-column: 1/-1;"><label>Lieu de stockage / Responsable *</label><input type="text" id="m_resp"></div>
+                </div>
+                <button class="btn" style="background:#8e44ad; width:100%; margin-top:15px; color:white;" onclick="saveMateriel()">✅ Ajouter au stock</button>
+            </div>
+            <div class="list-grid" id="materielList"></div>
+        </div>
+
+        <div id="sec-parrains" class="section hidden">
+            <div class="card" style="text-align:center;">
+                <h2 style="color:#e67e22; margin-bottom:10px;">🤝 Registre des Parrains & Marraines</h2>
+            </div>
+            <div class="list-grid" id="parrainList"></div>
+        </div>
+
+        <div id="sec-maitrise" class="section hidden admin-only">
+            <div class="card">
+                <h2 class="card-header">👔 Gérer la Maîtrise</h2>
+                <input type="hidden" id="c_id" value="">
+                <div class="grid-form">
+                    <div class="form-group"><label>Nom complet *</label><input type="text" id="c_nom"></div>
+                    <div class="form-group"><label>Titre (Branche) *</label><select id="c_titre"><option>Micou</option><option>Akela</option><option>Chef de Troupe</option><option>Safouin</option><option>Coordinateur</option><option>Groupe et ressources adultes</option></select></div>
+                    <div class="form-group"><label>Fonction / Grade *</label><select id="c_fonction"><option>Chef d'Unité (CU)</option><option>Chef d'Unité Adjoint (CUA)</option><option>Assistant Chef d'Unité (ACU)</option><option>Membre du Comité</option></select></div>
+                    <div class="form-group"><label>Téléphone *</label><input type="tel" id="c_tel"></div>
+                    <div class="form-group"><label>Code PIN (4 chiffres) *</label><input type="password" id="c_pin" maxlength="4" placeholder="Ex: 1234"></div>
+                </div>
+                <button class="btn btn-main" style="background:var(--c-cg);" onclick="saveChef()">✅ Enregistrer le Responsable</button>
+            </div>
+            <div class="list-grid" id="chefList"></div>
+        </div>
+
+        <div id="sec-finances" class="section hidden admin-only">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                <div class="card" style="text-align:center; border-bottom: 4px solid #27ae60;"><h4>Entrées</h4><h2 style="color:#27ae60;" id="f_tot_in">0</h2></div>
+                <div class="card" style="text-align:center; border-bottom: 4px solid #c0392b;"><h4>Sorties</h4><h2 style="color:#c0392b;" id="f_tot_out">0</h2></div>
+                <div class="card" style="text-align:center; border-bottom: 4px solid var(--text-main);"><h4>Solde Caisse</h4><h2 style="color:var(--text-main);" id="f_solde">0</h2></div>
+            </div>
+            <div class="card">
+                <h2 class="card-header">💰 Nouvelle Opération</h2>
+                <div class="grid-form">
+                    <div class="form-group"><label>Type</label><select id="f_type"><option value="in">🟢 Entrée</option><option value="out">🔴 Sortie</option></select></div>
+                    <div class="form-group"><label>Catégorie</label><select id="f_cat" onchange="checkCotisation()"><option>Cotisation Annuelle</option><option>Quota Activité / Camp</option><option>AGR</option><option>Achat Matériel</option><option>Transport</option><option>Alimentation (Intendance)</option><option>Autre</option></select></div>
+                    <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="f_montant"></div>
+                    <div class="form-group"><label>Date</label><input type="date" id="f_date"></div>
+                    <div class="form-group" style="grid-column: 1/-1;"><label>Motif / Détails *</label><input type="text" id="f_motif"></div>
+
+                    <div class="form-group" id="f_scout_link" style="grid-column: 1/-1; background:#e8f5e9; padding:15px; border-radius:5px; border:1px solid #c8e6c9; display:none;">
+                        <label style="color:#27ae60; font-weight:bold; margin-bottom:5px;">✓ Lier ce paiement à un Membre (Met sa pastille de cotisation au vert 🟢)</label>
+                        <select id="f_scout_select" style="width:100%;"><option value="">Sélectionner le membre qui vient de payer...</option></select>
+                    </div>
+                </div>
+                <button class="btn btn-warning" style="width:100%; margin-top:15px;" onclick="saveFinance()">Enregistrer l'opération</button>
+            </div>
+            <div class="card table-responsive">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"><h3>Livre de Caisse</h3><button class="btn btn-secondary" onclick="printCaisse()">📄 Bilan PDF</button></div>
+                <table id="tableFinance"><thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th><th class="no-print">Action</th></tr></thead><tbody id="financeList"></tbody></table>
+            </div>
+        </div>
+
+        <div id="sec-parametres" class="section hidden admin-only">
+            <div class="card" style="border-left: 5px solid var(--c-cg);">
+                <h2 class="card-header">⚙️ Infos Groupe (En-tête PDF)</h2>
+                <div class="grid-form">
+                    <div class="form-group"><label>Nom du Chef de Groupe *</label><input type="text" id="cfg_cg_nom" placeholder="Ex: Jean DUPONT"></div>
+                    <div class="form-group"><label>Contact du Chef de Groupe *</label><input type="tel" id="cfg_cg_tel" placeholder="Ex: 01 02 03 04 05"></div>
+                    <div class="form-group"><label>Tarif Cotisation Jeune (FCFA)</label><input type="number" id="cfg_cot_j"></div>
+                    <div class="form-group"><label>Tarif Cotisation Chef (FCFA)</label><input type="number" id="cfg_cot_c"></div>
+                </div>
+                <button class="btn btn-main" style="background:var(--c-cg);" onclick="saveSettings()">💾 Enregistrer les informations</button>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #f39c12;">
+                <h2 class="card-header">🚀 Les Montées (Nouvelle Année Scoute)</h2>
+                <button class="btn btn-warning" onclick="cloturerAnnee()">🔄 Clôturer l'année et remettre les cotisations à Impayé</button>
+            </div>
+
+            <div class="card">
+                <h2 class="card-header">✏️ Éditeur de Progression ASCCI</h2>
+                <div class="grid-form" style="grid-template-columns: 1fr;">
+                    <div class="form-group"><label style="color:var(--c-oisillon);">Oisillon</label><input type="text" id="cfg_prog_oisillon"></div>
+                    <div class="form-group"><label style="color:var(--c-meute);">Meute</label><input type="text" id="cfg_prog_meute"></div>
+                    <div class="form-group"><label style="color:var(--c-troupe);">Troupe</label><input type="text" id="cfg_prog_troupe"></div>
+                    <div class="form-group"><label style="color:var(--c-chemin);">Chemin</label><input type="text" id="cfg_prog_chemin"></div>
+                    <div class="form-group"><label style="color:var(--c-route);">Route</label><input type="text" id="cfg_prog_route"></div>
+                </div>
+                <button class="btn btn-main" onclick="saveProgSettings()">💾 Mettre à jour les progressions</button>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="printArea"></div>
+</div>
+
+<div class="modal" id="modalPeda">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeM('modalPeda')">&times;</button>
+        <h2 id="mp_nom" style="color:var(--text-main); margin-bottom:5px;"></h2>
+        <p id="mp_info" style="color:#666; font-size:0.9rem; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
+        <div class="grid-form" style="margin-bottom:15px;"><div class="form-group"><label>Totem :</label><input type="text" id="mp_totem"></div></div>
+        <h4 style="margin-top: 10px; color: var(--text-main);">Étapes de progression :</h4>
+        <div id="mp_etapes" style="background:#f9f9f9; padding:15px; border-radius:8px; display:flex; flex-direction:column; gap:12px;"></div>
+        <div class="form-group" style="margin-top:20px;"><label style="color:var(--text-main);">📝 Carnet de suivi du Chef (Observations) :</label><textarea id="mp_obs" rows="4"></textarea></div>
+        <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="savePeda()">✅ Enregistrer la progression</button>
+    </div>
+</div>
+
+<div class="modal" id="modalPresDetails">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeM('modalPresDetails')">&times;</button>
+        <h2 id="mpres_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
+        <p id="mpres_date" style="color: #666;"></p>
+        <p id="mpres_resp" style="color: #666; margin-bottom: 15px; font-weight: bold; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;"><button class="btn btn-success" style="flex:1;" onclick="copyWhatsApp()">📱 Copier Rapport WhatsApp</button><button class="btn btn-secondary" style="flex:1;" onclick="printPresence()">📄 Imprimer Fiche PDF</button></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;"><div><h4 style="color:#27ae60; border-bottom: 2px solid #eee; padding-bottom:5px;">✅ Présents (<span id="count_p">0</span>)</h4><ul id="list_p" style="list-style:none; margin-top:10px; line-height:1.8;"></ul></div><div><h4 style="color:#e74c3c; border-bottom: 2px solid #eee; padding-bottom:5px;">❌ Absents (<span id="count_a">0</span>)</h4><ul id="list_a" style="list-style:none; margin-top:10px; line-height:1.8;"></ul></div></div>
+    </div>
+</div>
+
+<div class="modal" id="modalAutoConfig">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeM('modalAutoConfig')">&times;</button>
+        <h2 style="color:var(--text-main); margin-bottom:15px;">Générer l'autorisation parentale</h2>
+        <p style="color:#666; font-size:0.9rem; margin-bottom:10px;">Cible : <strong id="ma_target_name"></strong></p>
+        <div class="form-group" style="margin-bottom:20px;"><label>Personnalisez le texte de l'activité :</label><textarea id="ma_custom_text" rows="3">à participer au camp de [Lieu] qui se tiendra du [Date] au [Date].</textarea></div>
+        <button class="btn btn-main" onclick="printAutoRun()">🖨️ Générer et Imprimer le document</button>
+    </div>
+</div>
+
+<div class="modal" id="modalCampPart">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeM('modalCampPart')">&times;</button>
+        <h2 style="color:var(--text-main); border-bottom:2px solid #eee; padding-bottom:10px; margin-bottom:15px;">👥 Gérer les inscrits au camp</h2>
+        <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">Cochez les jeunes qui ont confirmé leur présence et suivez les paiements.</p>
+        <div id="campPartList" style="display:flex; flex-direction:column; gap:10px;"></div>
+        <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="saveCampPart()">✅ Enregistrer les participations</button>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -806,7 +806,7 @@ function afficherActivitesObion() {
     `;
   }).join("");
 
-  document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
+ document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
     champ.addEventListener("change", () => {
       const indexActivite = Number(champ.dataset.activite);
       const indexParticipant = Number(champ.dataset.participant);
@@ -816,6 +816,26 @@ function afficherActivitesObion() {
       montant = Math.max(0, Math.min(montant, montantDu));
 
       activitesObion[indexActivite].participants[indexParticipant].paye = montant;
+
+      sauvegarderActivitesObion();
+      afficherActivitesObion();
+    });
+  });
+
+  document.querySelectorAll(".champPaiementChefActivite").forEach((champ) => {
+    champ.addEventListener("change", () => {
+      const indexActivite = Number(champ.dataset.activite);
+      const indexChef = Number(champ.dataset.chef);
+      const montantDuChef = Number(activitesObion[indexActivite].montantChef || 0);
+
+      let montant = Number(champ.value || 0);
+      montant = Math.max(0, Math.min(montant, montantDuChef));
+
+      if (!Array.isArray(activitesObion[indexActivite].chefsParticipants)) {
+        activitesObion[indexActivite].chefsParticipants = [];
+      }
+
+      activitesObion[indexActivite].chefsParticipants[indexChef].paye = montant;
 
       sauvegarderActivitesObion();
       afficherActivitesObion();

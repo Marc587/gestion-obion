@@ -610,7 +610,35 @@ function sauvegarderActivitesObion() {
     JSON.stringify(activitesObion)
   );
 }
+const activiteModif =
+    activiteEnModification !== null ? activitesObion[activiteEnModification] : null;
 
+  if (activiteModif) {
+    const formModif = document.getElementById("formActivite");
+    formModif.querySelector('[name="titre"]').value = activiteModif.titre || "";
+    formModif.querySelector('[name="date"]').value = activiteModif.date || "";
+    formModif.querySelector('[name="montantJeune"]').value = activiteModif.montantJeune || 0;
+    formModif.querySelector('[name="montantChef"]').value = activiteModif.montantChef || 0;
+    formModif.querySelector('[name="description"]').value = activiteModif.description || "";
+
+    formModif.querySelectorAll('[name="branches"]').forEach((caseBranche) => {
+      caseBranche.checked = (activiteModif.branches || []).includes(caseBranche.value);
+    });
+
+    const boutonValider = formModif.querySelector('button[type="submit"]');
+    boutonValider.textContent = "Enregistrer les modifications";
+
+    const boutonAnnuler = document.createElement("button");
+    boutonAnnuler.type = "button";
+    boutonAnnuler.textContent = "Annuler la modification";
+    boutonAnnuler.style.marginLeft = "8px";
+    boutonAnnuler.addEventListener("click", () => {
+      activiteEnModification = null;
+      afficherActivitesObion();
+    });
+    boutonValider.insertAdjacentElement("afterend", boutonAnnuler);
+  }
+let activiteEnModification = null;
 function afficherActivitesObion() {
   const branches = [
     "Oisillons",

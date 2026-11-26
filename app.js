@@ -806,7 +806,22 @@ function afficherActivitesObion() {
       </div>
     `;
   }).join("");
+document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
+    bouton.addEventListener("click", () => {
+      const indexActivite = Number(bouton.dataset.index);
+      const activiteCible = activitesObion[indexActivite];
 
+      if (!activiteCible) {
+        return;
+      }
+
+      if (confirm("Supprimer l’activité « " + activiteCible.titre + " » ?")) {
+        activitesObion.splice(indexActivite, 1);
+        sauvegarderActivitesObion();
+        afficherActivitesObion();
+      }
+    });
+  });
  document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
     champ.addEventListener("change", () => {
       const indexActivite = Number(champ.dataset.activite);

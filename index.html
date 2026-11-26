@@ -35,7 +35,6 @@ body {
   min-height: 100vh;
 }
 
-/* Header & Logos */
 .app-header {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
   color: #fff;
@@ -51,17 +50,8 @@ body {
   z-index: 50;
 }
 
-.header-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.header-logos {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.header-brand { display: flex; align-items: center; gap: 12px; }
+.header-logos { display: flex; align-items: center; gap: 8px; }
 
 .header-logo {
   width: 42px;
@@ -72,23 +62,9 @@ body {
   border: 2px solid rgba(255,255,255,0.65);
 }
 
-.header-title h1 {
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-}
-
-.header-title p {
-  font-size: 0.78rem;
-  opacity: 0.9;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+.header-title h1 { font-size: 1.1rem; font-weight: 700; }
+.header-title p { font-size: 0.78rem; opacity: 0.9; }
+.header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .sync-pill {
   font-size: 0.75rem;
@@ -99,7 +75,6 @@ body {
   white-space: nowrap;
 }
 
-/* Login Screen */
 #loginScreen {
   min-height: calc(100vh - 70px);
   display: flex;
@@ -111,46 +86,28 @@ body {
 .login-card {
   background: var(--card);
   width: 100%;
-  max-width: 430px;
+  max-width: 440px;
   padding: 28px 24px;
   border-radius: 16px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
   border: 1px solid var(--border);
 }
 
-.login-logos {
-  display: flex;
-  justify-content: center;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
+.login-logos { display: flex; justify-content: center; gap: 12px; margin-bottom: 14px; }
 .login-logos img {
-  width: 58px;
-  height: 58px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--primary);
 }
 
-.login-card h2 {
-  text-align: center;
-  color: var(--primary);
-  font-size: 1.3rem;
-  margin-bottom: 4px;
-}
+.login-card h2 { text-align: center; color: var(--primary); font-size: 1.3rem; margin-bottom: 4px; }
+.login-card .subtitle { text-align: center; color: var(--muted); font-size: 0.88rem; margin-bottom: 20px; }
 
-.login-card .subtitle {
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.88rem;
-  margin-bottom: 20px;
-}
-
-/* Main App Shell */
 #appShell {
   display: none;
-  max-width: 1320px;
+  max-width: 1340px;
   margin: 0 auto;
   padding: 16px;
 }
@@ -186,7 +143,6 @@ body {
 .badge-purple { background: #f3e8ff; color: #6b21a8; }
 .badge-gray { background: #f1f5f9; color: #334155; }
 
-/* Navigation Tabs */
 .nav-tabs {
   display: flex;
   gap: 8px;
@@ -206,25 +162,15 @@ body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
   min-height: 42px;
 }
 
-.nav-tab:hover {
-  border-color: var(--primary-light);
-  color: var(--primary);
-}
-
-.nav-tab.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
-}
+.nav-tab:hover { border-color: var(--primary-light); color: var(--primary); }
+.nav-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
-/* Cards & Grids */
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -243,14 +189,8 @@ body {
   margin-bottom: 14px;
 }
 
-.card-title {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--primary);
-}
-
+.card-title { font-size: 1.05rem; font-weight: 700; color: var(--primary); }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
-.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 
 .kpi-box {
@@ -264,7 +204,6 @@ body {
 .kpi-value { font-size: 1.35rem; font-weight: 800; color: var(--primary); margin-top: 4px; }
 .kpi-sub { font-size: 0.76rem; color: var(--muted); margin-top: 3px; }
 
-/* Forms & Buttons */
 .form-group { margin-bottom: 12px; }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 
@@ -311,11 +250,9 @@ input:focus, select:focus, textarea:focus {
   background: var(--primary);
   color: #fff;
   min-height: 40px;
-  transition: opacity 0.15s ease, transform 0.1s ease;
 }
 
 .btn:hover { opacity: 0.92; }
-.btn:active { transform: scale(0.99); }
 .btn-sm { padding: 6px 10px; font-size: 0.78rem; min-height: 34px; }
 .btn-secondary { background: #e2e8f0; color: #1e293b; }
 .btn-success { background: var(--success); color: #fff; }
@@ -323,16 +260,9 @@ input:focus, select:focus, textarea:focus {
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-info { background: var(--info); color: #fff; }
 .btn-accent { background: var(--accent-dark); color: #fff; }
-.btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
 
-.actions-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
+.actions-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-/* Tables */
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -340,30 +270,12 @@ input:focus, select:focus, textarea:focus {
   border-radius: 10px;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.86rem;
-}
-
-th, td {
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
-th {
-  background: #f1f5f9;
-  color: #0f172a;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
+table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+th { background: #f1f5f9; color: #0f172a; font-weight: 700; white-space: nowrap; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: #f8fafc; }
 
-/* Alert banners */
 .alert-item {
   display: flex;
   align-items: center;
@@ -393,7 +305,6 @@ tr:hover td { background: #f8fafc; }
   flex-wrap: wrap;
 }
 
-/* Quick Call list for CU */
 .appel-row {
   display: flex;
   align-items: center;
@@ -407,12 +318,8 @@ tr:hover td { background: #f8fafc; }
   flex-wrap: wrap;
 }
 
-.appel-toggle {
-  display: flex;
-  gap: 6px;
-}
+.appel-toggle { display: flex; gap: 6px; }
 
-/* Modals */
 .modal-backdrop {
   display: none;
   position: fixed;
@@ -431,7 +338,7 @@ tr:hover td { background: #f8fafc; }
   background: #fff;
   border-radius: 14px;
   width: 100%;
-  max-width: 680px;
+  max-width: 720px;
   max-height: 90vh;
   overflow-y: auto;
   padding: 22px;
@@ -447,7 +354,6 @@ tr:hover td { background: #f8fafc; }
   border-bottom: 1px solid var(--border);
 }
 
-/* Receipt & Printable Sheet */
 .receipt-box {
   border: 2px dashed var(--primary);
   border-radius: 12px;
@@ -463,11 +369,12 @@ tr:hover td { background: #f8fafc; }
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
 .cachet-box {
   display: inline-block;
-  margin-top: 12px;
+  margin-top: 14px;
   padding: 8px 14px;
   border: 2px solid var(--primary);
   border-radius: 8px;
@@ -477,9 +384,7 @@ tr:hover td { background: #f8fafc; }
   transform: rotate(-2deg);
 }
 
-#printZone {
-  display: none;
-}
+#printZone { display: none; }
 
 @media print {
   @page { margin: 12mm; size: auto; }
@@ -519,11 +424,11 @@ tr:hover td { background: #f8fafc; }
   </div>
 </header>
 
-<!-- ÉCRAN DE CONNEXION -->
 <section id="loginScreen" class="no-print">
   <div class="login-card">
     <div class="login-logos">
       <img src="logo-app.jpg" alt="OBION" onerror="this.style.display='none'">
+      <img src="logo-district.jpg" alt="District" onerror="this.style.display='none'">
       <img src="logo.jpg" alt="Groupe OBION" onerror="this.style.display='none'">
     </div>
     <h2>Groupe Scout OBION</h2>
@@ -552,19 +457,18 @@ tr:hover td { background: #f8fafc; }
 
       <div class="form-group">
         <label for="loginPin">Code PIN d'accès</label>
-        <input type="password" id="loginPin" placeholder="Ex: 1234" required>
+        <input type="password" id="loginPin" placeholder="PIN individuel CU ou PIN du rôle" required>
       </div>
 
       <button type="submit" class="btn" style="width:100%;">Se connecter</button>
     </form>
 
     <p style="margin-top:14px; font-size:0.76rem; color:var(--muted); text-align:center;">
-      PIN par défaut si non configuré : CG = <strong>1111</strong> · Financier = <strong>2222</strong> · CU = <strong>3333</strong>
+      PIN par défaut : CG = <strong>1111</strong> · Financier = <strong>2222</strong> · CU = <strong>PIN individuel du CU</strong> (ou <strong>3333</strong> par défaut)
     </p>
   </div>
 </section>
 
-<!-- APPLICATION PRINCIPALE -->
 <main id="appShell" class="no-print">
   <div class="user-banner">
     <div class="actions-row">
@@ -583,7 +487,7 @@ tr:hover td { background: #f8fafc; }
     <button type="button" class="nav-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 Tableau de bord</button>
     <button type="button" class="nav-tab" data-tab="effectifs" onclick="switchTab('effectifs')">⚜️ Effectifs</button>
     <button type="button" class="nav-tab" data-tab="presences" onclick="switchTab('presences')">✅ Appels & Présences</button>
-    <button type="button" class="nav-tab" data-tab="activites" onclick="switchTab('activites')">📋 Activités Maîtrise</button>
+    <button type="button" class="nav-tab" data-tab="programme" onclick="switchTab('programme')">📅 Programme annuel</button>
     <button type="button" class="nav-tab" data-tab="camps" onclick="switchTab('camps')">⛺ Camps</button>
     <button type="button" class="nav-tab" data-tab="pedagogie" onclick="switchTab('pedagogie')">📘 Pédagogie</button>
     <button type="button" class="nav-tab" data-tab="materiel" onclick="switchTab('materiel')">🎒 Matériel</button>
@@ -674,8 +578,8 @@ tr:hover td { background: #f8fafc; }
 
     <div class="card" id="chefsSectionCard">
       <div class="card-header">
-        <h2 class="card-title">Maîtrise / Chefs du Groupe</h2>
-        <button type="button" class="btn btn-sm" id="btnAddChef" onclick="openChefModal()">+ Ajouter un chef</button>
+        <h2 class="card-title">Maîtrise / Chefs & Accès CU</h2>
+        <button type="button" class="btn btn-sm" id="btnAddChef" onclick="openChefModal()">+ Ajouter un chef / PIN CU</button>
       </div>
       <div id="chefsStatsBar" class="kpi-box" style="margin-bottom:12px;"></div>
       <div class="table-wrap">
@@ -687,6 +591,7 @@ tr:hover td { background: #f8fafc; }
               <th>Branche</th>
               <th>Sexe</th>
               <th>Téléphone</th>
+              <th>PIN accès</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -718,9 +623,19 @@ tr:hover td { background: #f8fafc; }
       <div class="actions-row" style="margin-bottom:12px;">
         <button type="button" class="btn btn-sm btn-secondary" onclick="markAllAppel('Présent')">Tout marquer Présent</button>
         <button type="button" class="btn btn-sm btn-success" onclick="saveQuickAppel()">💾 Enregistrer l'appel</button>
+        <button type="button" class="btn btn-sm btn-info" onclick="printCurrentAppelSheet()">🖨️ Imprimer présence (Cachet + Logos)</button>
       </div>
 
       <div id="quickAppelList"></div>
+
+      <div id="appelAutoMessageBox" class="card" style="display:none; background:#f8fafc; margin-top:14px;">
+        <div class="card-header">
+          <h3 class="card-title">📲 Message automatique d'appel / présences</h3>
+          <button type="button" class="btn btn-sm btn-success" onclick="copyAppelAutoMessage()">📋 Copier le message</button>
+        </div>
+        <textarea id="appelAutoMessageArea" style="min-height:110px;"></textarea>
+        <div id="absentParentActions" class="actions-row" style="margin-top:10px;"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -745,31 +660,33 @@ tr:hover td { background: #f8fafc; }
     </div>
   </section>
 
-  <!-- 4. ACTIVITÉS DE MAÎTRISE -->
-  <section id="tab-activites" class="tab-panel">
+  <!-- 4. PROGRAMME ANNUEL (ACTIVITÉS DE MAÎTRISE & PROGRAMME) -->
+  <section id="tab-programme" class="tab-panel">
     <div class="card">
       <div class="card-header">
-        <h2 class="card-title">Activités de Maîtrise (Réunions & Formations)</h2>
+        <h2 class="card-title">Programme d'activités annuel</h2>
         <div class="actions-row">
-          <select id="filterActiviteCible" onchange="renderActivites()" style="width:auto;">
+          <select id="filterActiviteCible" onchange="renderProgrammeAnnuel()" style="width:auto;">
             <option value="all">Toutes les cibles visibles</option>
             <option value="tous_chefs">Tous les chefs</option>
             <option value="cu_only">CU uniquement</option>
             <option value="cg_only">CG uniquement</option>
           </select>
-          <button type="button" class="btn btn-sm" id="btnAddActivite" onclick="openActiviteModal()">+ Nouvelle activité</button>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="printProgrammeAnnuel()">🖨️ Imprimer programme (Cachet + Logos)</button>
+          <button type="button" class="btn btn-sm" id="btnAddActivite" onclick="openActiviteModal()">+ Ajouter au programme</button>
         </div>
       </div>
       <p style="font-size:0.84rem; color:var(--muted); margin-bottom:12px;">
-        Les réunions et formations de maîtrise sont distinctes des camps des jeunes. Un CU ne voit que les activités qui le concernent (CU seul et Tous les chefs).
+        Toutes les activités du programme annuel figurent ici. Chaque CU ne voit que ce qui le concerne (CU seul, Tous les chefs ou sa branche). Si un tarif est fixé, le Financier peut gérer le paiement par jeune.
       </p>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Date</th>
-              <th>Titre / Objet</th>
-              <th>Cible</th>
+              <th>Activité / Objet</th>
+              <th>Cible / Branche</th>
+              <th>Tarif</th>
               <th>Lieu / Notes</th>
               <th>Actions</th>
             </tr>
@@ -803,7 +720,7 @@ tr:hover td { background: #f8fafc; }
               <th>Type & Branche</th>
               <th>Dates & Lieu</th>
               <th>Superviseurs</th>
-              <th>Frais / Paiements</th>
+              <th>Frais</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -869,7 +786,7 @@ tr:hover td { background: #f8fafc; }
     </div>
   </section>
 
-  <!-- 8. FINANCES & DONS -->
+  <!-- 8. FINANCES, COTISATIONS, ACTIVITÉS PAYANTES & DONS -->
   <section id="tab-finances" class="tab-panel">
     <div id="waveTresorerieBox" class="wave-box">
       <div>
@@ -892,8 +809,63 @@ tr:hover td { background: #f8fafc; }
           <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptModal()">🧾 Reçu parent</button>
         </div>
       </div>
-
       <div class="grid-4" id="financeKpiGrid"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">✅ Cotisations (Annuelles, Mensuelles & Autres cotisations créées)</h2>
+        <div class="actions-row">
+          <button type="button" class="btn btn-sm btn-info" onclick="openCreateCustomCotisationModal()">+ Créer une cotisation</button>
+          <select id="cotTypeSelect" onchange="renderCotisationsSuivi()" style="width:auto; min-width:190px;"></select>
+          <select id="cotFilterBranche" onchange="renderCotisationsSuivi()" style="width:auto;">
+            <option value="Toutes">Toutes les branches</option>
+            <option value="Oisillon">Oisillon</option>
+            <option value="Meute">Meute</option>
+            <option value="Troupe">Troupe</option>
+            <option value="Chemin">Chemin</option>
+            <option value="Route">Route</option>
+          </select>
+        </div>
+      </div>
+      <p style="font-size:0.84rem; color:var(--muted); margin-bottom:10px;">
+        Pour la cotisation annuelle, l'ajout du numéro de matricule confirme le paiement annuel du jeune. Vous pouvez aussi créer de nouvelles cotisations mensuelles ou ponctuelles.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Jeune</th>
+              <th>Branche</th>
+              <th>Annuelle & Matricule</th>
+              <th>Cotisation sélectionnée</th>
+              <th>Reçu</th>
+            </tr>
+          </thead>
+          <tbody id="cotisationsSuiviBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">🎯 Paiements par Activité / Camp à prix fixé</h2>
+        <select id="paidActivitySelect" onchange="renderActivityPaymentsList()" style="width:auto; min-width:220px;"></select>
+      </div>
+      <div id="activityPaymentSummary" style="margin-bottom:10px; font-size:0.86rem; color:var(--muted);"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Jeune</th>
+              <th>Branche</th>
+              <th>Statut paiement</th>
+              <th>Reçu</th>
+            </tr>
+          </thead>
+          <tbody id="activityPaymentsBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card">
@@ -1006,7 +978,7 @@ tr:hover td { background: #f8fafc; }
 
       <div class="form-group">
         <label for="annonceTextArea">Texte du message (modifiable avant envoi)</label>
-        <textarea id="annonceTextArea"></textarea>
+        <textarea id="annonceTextArea" oninput="renderAnnonceRecipients()"></textarea>
       </div>
 
       <div class="actions-row" style="margin-bottom:16px;">
@@ -1066,7 +1038,7 @@ tr:hover td { background: #f8fafc; }
             <input type="number" id="cfg_cot_j_groupe" min="0">
           </div>
           <div class="form-group">
-            <label for="cfg_cot_mens_j">Cotisation mensuelle jeune (FCFA)</label>
+            <label for="cfg_cot_mens_j">Cotisation mensuelle par défaut (FCFA)</label>
             <input type="number" id="cfg_cot_mens_j" min="0">
           </div>
         </div>
@@ -1081,11 +1053,11 @@ tr:hover td { background: #f8fafc; }
             <input type="text" id="cfg_pin_fin">
           </div>
           <div class="form-group">
-            <label for="cfg_pin_cu">PIN Chef d'Unité</label>
+            <label for="cfg_pin_cu">PIN CU par défaut (si non individuel)</label>
             <input type="text" id="cfg_pin_cu">
           </div>
           <div class="form-group">
-            <label for="cfg_cachet_actif">Cachet numérique sur reçus</label>
+            <label for="cfg_cachet_actif">Cachet numérique sur imprimables</label>
             <select id="cfg_cachet_actif">
               <option value="true">Actif</option>
               <option value="false">Désactivé</option>
@@ -1104,7 +1076,6 @@ tr:hover td { background: #f8fafc; }
   </section>
 </main>
 
-<!-- MODALE GÉNÉRIQUE -->
 <div id="genericModal" class="modal-backdrop no-print" onclick="if(event.target===this) closeModal()">
   <div class="modal-card">
     <div class="modal-header">
@@ -1115,7 +1086,6 @@ tr:hover td { background: #f8fafc; }
   </div>
 </div>
 
-<!-- ZONE D'IMPRESSION PROPRE -->
 <div id="printZone"></div>
 
 <script src="app.js"></script>

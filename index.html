@@ -1,692 +1,1122 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ERP Scout - Groupe OBION</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Scout — Groupe OBION</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root {
+  --primary: #1b4332;
+  --primary-light: #2d6a4f;
+  --accent: #d4a373;
+  --accent-dark: #b07d4f;
+  --bg: #f4f6f5;
+  --card: #ffffff;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --success: #16a34a;
+  --info: #0284c7;
+  --shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+  --radius: 12px;
+}
 
-    <link id="favIconLink" rel="icon" type="image/jpeg" href="logo-app.jpg">
-    <link id="appleIconLink" rel="apple-touch-icon" href="logo-app.jpg">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#8e44ad">
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
 
-    <style>
-        :root {
-            --c-cg: #8e44ad; --c-route: #c0392b; --c-chemin: #d35400;
-            --c-troupe: #27ae60; --c-meute: #f39c12; --c-oisillon: #e84393;
-            --bg-body: #f4f7f6; --white: #ffffff; --text-main: #0a1f44;
-            --shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
+/* Header & Logos */
+.app-header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  color: #fff;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 14px rgba(27, 67, 50, 0.18);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
 
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
-        body { background: var(--bg-body); color: var(--text-main); padding-bottom: 50px; }
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-        #loaderScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; padding: 20px; text-align: center; }
-        .spinner { border: 5px solid #f3f3f3; border-top: 5px solid var(--c-cg); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.header-logos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-        #loginScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--text-main); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 15px; }
-        .login-box { background: white; padding: 35px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 100%; max-width: 400px; text-align: center; }
-        .login-logo { width: 110px; height: 110px; object-fit: cover; border-radius: 50%; margin-bottom: 15px; box-shadow: var(--shadow); border: 3px solid var(--white); }
-        .login-box h1 { color: var(--c-cg); margin-bottom: 5px; font-size: 1.8rem; }
-        .login-box p { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+.header-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #fff;
+  border: 2px solid rgba(255,255,255,0.65);
+}
 
-        #appContainer { display: none; }
-        header { background: var(--text-main); color: white; padding: 15px; text-align: center; position: relative; display: flex; flex-direction: column; align-items: center; }
-        .header-logo { width: 60px; height: 60px; object-fit: cover; border-radius: 50%; margin-bottom: 10px; border: 2px solid white; }
-        header h1 { font-size: 1.4rem; }
-        header p { color: #bdc3c7; font-size: 0.85rem; margin-top: 5px; }
-        .sync-badge { display: inline-block; margin-top: 8px; padding: 3px 12px; border-radius: 12px; font-size: 0.78rem; font-weight: bold; background: rgba(255,255,255,0.14); color: #ecf0f1; }
-        .btn-logout { position: absolute; top: 15px; right: 15px; background: #e74c3c; color: white; border: none; padding: 6px 14px; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 0.8rem; }
+.header-title h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
 
-        .tab-menu { display: flex; flex-wrap: wrap; background: white; box-shadow: var(--shadow); position: sticky; top: 0; z-index: 100; padding: 10px; justify-content: center; gap: 8px; }
-        .tab-btn { padding: 8px 12px; border: none; border-radius: 20px; background: #eee; font-weight: bold; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem; }
-        .tab-btn:hover { background: #ddd; }
-        .tab-btn.active { background: var(--text-main); color: white; }
+.header-title p {
+  font-size: 0.78rem;
+  opacity: 0.9;
+}
 
-        .container { max-width: 1200px; margin: 20px auto; padding: 0 15px; }
-        .hidden { display: none !important; }
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
-        .card { background: var(--white); padding: 20px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 20px; }
-        .card-header { font-size: 1.2rem; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #eee; color: var(--text-main); }
-        .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
-        .form-group { display: flex; flex-direction: column; gap: 5px; }
-        .form-group label { font-weight: 600; font-size: 0.85rem; color: #555; }
-        input, select, textarea { padding: 10px; border: 1px solid #ccc; border-radius: 6px; outline: none; font-size: 0.95rem; font-family: inherit; }
-        input[readonly], select[readonly] { background: #f0f0f0; }
+.sync-pill {
+  font-size: 0.75rem;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.28);
+  white-space: nowrap;
+}
 
-        .btn { padding: 10px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: 0.2s; text-decoration: none; font-size: 0.9rem; }
-        .btn:hover { opacity: 0.9; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-main { background: #3498db; width: 100%; margin-top: 15px; font-size: 1rem; }
-        .btn-danger { background: #e74c3c; }
-        .btn-warning { background: #e67e22; }
-        .btn-success { background: #27ae60; }
-        .btn-secondary { background: #7f8c8d; }
-        .btn-edit { background: #f39c12; }
+/* Login Screen */
+#loginScreen {
+  min-height: calc(100vh - 70px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
 
-        .progress-bg { background: #eee; height: 10px; border-radius: 5px; width: 100%; overflow: hidden; margin-top: 5px; }
-        .progress-bar { height: 100%; transition: width 0.3s; background: #3498db; }
+.login-card {
+  background: var(--card);
+  width: 100%;
+  max-width: 430px;
+  padding: 28px 24px;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--border);
+}
 
-        .list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
-        .item-card { background: white; padding: 15px; border-radius: 10px; box-shadow: var(--shadow); border-left: 6px solid #ccc; position: relative; }
-        .b-Route { border-left-color: var(--c-route) !important; } .b-Route .b-badge, .b-Route .progress-bar { background: var(--c-route) !important; }
-        .b-Chemin { border-left-color: var(--c-chemin) !important; } .b-Chemin .b-badge, .b-Chemin .progress-bar { background: var(--c-chemin) !important; }
-        .b-Troupe { border-left-color: var(--c-troupe) !important; } .b-Troupe .b-badge, .b-Troupe .progress-bar { background: var(--c-troupe) !important; }
-        .b-Meute { border-left-color: var(--c-meute) !important; } .b-Meute .b-badge, .b-Meute .progress-bar { background: var(--c-meute) !important; }
-        .b-Oisillon { border-left-color: var(--c-oisillon) !important; } .b-Oisillon .b-badge, .b-Oisillon .progress-bar { background: var(--c-oisillon) !important; }
-        .b-CG { border-left-color: var(--c-cg) !important; }
-        .b-badge { position: absolute; top: 15px; right: 15px; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; background: #ccc; }
-        .item-card h3 { margin-bottom: 5px; font-size: 1.1rem; padding-right: 75px; }
-        .item-card p { font-size: 0.85rem; color: #555; margin-bottom: 4px; }
-        .item-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; border-top: 1px solid #eee; padding-top: 10px; }
+.login-logos {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
 
-        .status-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-        .status-green { background: #27ae60; box-shadow: 0 0 5px #27ae60; }
-        .status-red { background: #e74c3c; box-shadow: 0 0 5px #e74c3c; }
-        .wa-btn { background: #25D366; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; cursor: pointer; }
+.login-logos img {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--primary);
+}
 
-        .table-responsive { overflow-x: auto; background: white; border-radius: 8px; box-shadow: var(--shadow); }
-        table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 0.9rem; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
-        th { background: #f8f9fa; font-weight: 600; }
-        .td-entree { color: #27ae60; font-weight: bold; }
-        .td-sortie { color: #c0392b; font-weight: bold; }
+.login-card h2 {
+  text-align: center;
+  color: var(--primary);
+  font-size: 1.3rem;
+  margin-bottom: 4px;
+}
 
-        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 10px; }
-        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto; position: relative; }
-        .close-modal { position: absolute; top: 15px; right: 15px; font-size: 1.5rem; cursor: pointer; border: none; background: none; color: #888; }
+.login-card .subtitle {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-bottom: 20px;
+}
 
-        .doc-header-logos { display: flex; justify-content: space-between; align-items: center; gap: 15px; border-bottom: 2px solid #0a1f44; padding-bottom: 10px; margin-bottom: 14px; }
-        .doc-logo { width: 70px; height: 70px; object-fit: contain; }
-        .doc-header-center { text-align: center; flex: 1; }
-        .doc-header-center h2 { font-size: 1.35rem; color: #0a1f44; margin-bottom: 2px; }
-        .doc-header-center p { font-size: 0.85rem; color: #444; }
+/* Main App Shell */
+#appShell {
+  display: none;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 16px;
+}
 
-        .cachet-cg { margin-top: 18px; display: inline-block; border: 2px solid #0a1f44; border-radius: 8px; padding: 10px 16px; background: #fafbfd; color: #0a1f44; min-width: 260px; }
-        .cachet-cg strong { display: block; font-size: 0.9rem; text-transform: uppercase; color: #8e44ad; }
-        .cachet-cg small { display: block; font-size: 0.78rem; color: #333; margin-top: 2px; }
+.user-banner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  box-shadow: var(--shadow);
+}
 
-        @media print {
-            @page { margin: 10mm; }
-            body { padding-bottom: 0; background: white; }
-            body * { visibility: hidden; }
-            #printArea, #printArea * { visibility: visible; }
-            #printArea { position: absolute; left: 0; top: 0; width: 100%; padding: 0; background: white; }
-            .no-print { display: none !important; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
-            th, td { border: 1px solid #000; padding: 6px; text-align: left; }
-            .cachet-cg { page-break-inside: avoid; }
-        }
-    </style>
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.badge-green { background: #dcfce7; color: #166534; }
+.badge-amber { background: #fef3c7; color: #92400e; }
+.badge-red { background: #fee2e2; color: #991b1b; }
+.badge-blue { background: #e0f2fe; color: #075985; }
+.badge-purple { background: #f3e8ff; color: #6b21a8; }
+.badge-gray { background: #f1f5f9; color: #334155; }
+
+/* Navigation Tabs */
+.nav-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 16px;
+  scrollbar-width: thin;
+}
+
+.nav-tab {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  min-height: 42px;
+}
+
+.nav-tab:hover {
+  border-color: var(--primary-light);
+  color: var(--primary);
+}
+
+.nav-tab.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Cards & Grids */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+.kpi-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.kpi-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.kpi-value { font-size: 1.35rem; font-weight: 800; color: var(--primary); margin-top: 4px; }
+.kpi-sub { font-size: 0.76rem; color: var(--muted); margin-top: 3px; }
+
+/* Forms & Buttons */
+.form-group { margin-bottom: 12px; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 5px;
+}
+
+input, select, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  font-family: inherit;
+  background: #fff;
+  color: var(--text);
+  min-height: 40px;
+}
+
+textarea { min-height: 84px; resize: vertical; }
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(27, 67, 50, 0.12);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 9px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  background: var(--primary);
+  color: #fff;
+  min-height: 40px;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.btn:hover { opacity: 0.92; }
+.btn:active { transform: scale(0.99); }
+.btn-sm { padding: 6px 10px; font-size: 0.78rem; min-height: 34px; }
+.btn-secondary { background: #e2e8f0; color: #1e293b; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-warning { background: var(--warning); color: #fff; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-info { background: var(--info); color: #fff; }
+.btn-accent { background: var(--accent-dark); color: #fff; }
+.btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+
+.actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Tables */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+th, td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+th {
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #f8fafc; }
+
+/* Alert banners */
+.alert-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border-left: 4px solid var(--warning);
+  margin-bottom: 8px;
+  font-size: 0.86rem;
+}
+
+.alert-item.danger { background: #fef2f2; border-left-color: var(--danger); }
+.alert-item.info { background: #f0f9ff; border-left-color: var(--info); }
+
+.wave-box {
+  display: none;
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  background: #eef9ff;
+  border-left: 5px solid #00a8e8;
+  border-radius: 10px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Quick Call list for CU */
+.appel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  margin-bottom: 8px;
+  background: #fff;
+  flex-wrap: wrap;
+}
+
+.appel-toggle {
+  display: flex;
+  gap: 6px;
+}
+
+/* Modals */
+.modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.modal-backdrop.open { display: flex; }
+
+.modal-card {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 22px;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Receipt & Printable Sheet */
+.receipt-box {
+  border: 2px dashed var(--primary);
+  border-radius: 12px;
+  padding: 18px;
+  background: #fcfdfb;
+}
+
+.receipt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.cachet-box {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 0.8rem;
+  transform: rotate(-2deg);
+}
+
+#printZone {
+  display: none;
+}
+
+@media print {
+  @page { margin: 12mm; size: auto; }
+  body > *:not(#printZone) { display: none !important; }
+  #printZone {
+    display: block !important;
+    padding: 0;
+    color: #000;
+    background: #fff;
+  }
+  .no-print { display: none !important; }
+}
+
+@media (max-width: 640px) {
+  #appShell { padding: 10px; }
+  .card { padding: 14px; }
+  .header-title h1 { font-size: 1rem; }
+}
+</style>
 </head>
 <body>
 
-<div id="loaderScreen">
-    <img id="loaderLogoImg" src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
-    <div class="spinner"></div>
-    <h2 style="color:var(--text-main);">Connexion au cloud ASCCI...</h2>
-</div>
-
-<div id="loginScreen" class="no-print">
-    <div class="login-box">
-        <img id="loginLogoImg" src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
-        <h1>Groupe OBION</h1>
-        <p>Portail de Connexion - Maîtrise<br><small>St Bernard d'Adiopodoumé KM17</small></p>
-        <div class="form-group" style="text-align: left; margin-bottom: 15px;">
-            <label>Utilisateur :</label>
-            <select id="login_user"></select>
-        </div>
-        <div class="form-group" style="text-align: left; margin-bottom: 20px;">
-            <label>Code PIN (4 chiffres) :</label>
-            <input type="password" id="login_pin" maxlength="4" placeholder="****" style="text-align: center; font-size: 1.2rem; letter-spacing: 5px;">
-        </div>
-        <button class="btn btn-main" style="background: var(--text-main);" onclick="login()">Se Connecter</button>
-        <p id="login_error" style="color: #e74c3c; margin-top: 15px; font-weight: bold; display: none;">Code PIN incorrect.</p>
+<header class="app-header no-print">
+  <div class="header-brand">
+    <div class="header-logos">
+      <img id="hdrLogoApp" src="logo-app.jpg" alt="Logo Appli" class="header-logo" onerror="this.style.display='none'">
+      <img id="hdrLogoDistrict" src="logo-district.jpg" alt="Logo District" class="header-logo" onerror="this.style.display='none'">
+      <img id="hdrLogoGroupe" src="logo.jpg" alt="Logo Groupe" class="header-logo" onerror="this.style.display='none'">
     </div>
-</div>
-
-<div id="appContainer">
-    <header class="no-print">
-        <img id="headerLogoImg" src="logo.jpg" alt="Logo OBION" class="header-logo" onerror="this.style.display='none'">
-        <h1>ERP SCOUT - OBION</h1>
-        <p>St Bernard d'Adiopodoumé KM17</p>
-        <p style="margin-top: 10px; font-size: 0.9rem; background: rgba(255,255,255,0.1); padding: 5px 15px; border-radius: 15px;">
-            Connecté : <span id="current_user_display" style="color:var(--c-meute); font-weight:bold;"></span>
-        </p>
-        <span class="sync-badge" id="syncBadge">☁️ Synchronisation...</span>
-        <button class="btn-logout" onclick="logout()">Déconnexion</button>
-    </header>
-
-    <div class="tab-menu no-print">
-        <button class="tab-btn active" onclick="nav('dashboard')" id="tab_dashboard">📊 Tableau de bord</button>
-        <button class="tab-btn" onclick="nav('programme')" id="tab_programme">🗓️ Programme annuel</button>
-        <button class="tab-btn" onclick="nav('effectifs')" id="tab_effectifs">📋 Effectifs</button>
-        <button class="tab-btn" onclick="nav('pedagogie')" id="tab_pedagogie">🎓 Pédagogie</button>
-        <button class="tab-btn" onclick="nav('camps')" id="tab_camps">🏕️ Camps & WE</button>
-        <button class="tab-btn" onclick="nav('presences')" id="tab_presences">📅 Appels</button>
-        <button class="tab-btn" onclick="nav('materiel')" id="tab_materiel">⛺ Intendance</button>
-        <button class="tab-btn" onclick="nav('parrains')" id="tab_parrains">🤝 Parrains</button>
-        <button class="tab-btn" onclick="nav('maitrise')" id="tab_maitrise">👔 Maîtrise</button>
-        <button class="tab-btn" onclick="nav('finances')" id="tab_finances">💰 Finances</button>
-        <button class="tab-btn" onclick="nav('parametres')" id="tab_parametres">⚙️ Paramètres</button>
+    <div class="header-title">
+      <h1>ERP Scout — Groupe OBION</h1>
+      <p id="hdrSubtitle">Gestion du groupe, des unités, des finances et des familles</p>
     </div>
+  </div>
+  <div class="header-right">
+    <span id="syncStatus" class="sync-pill">⏳ Initialisation...</span>
+  </div>
+</header>
 
-    <div class="container no-print">
+<!-- ÉCRAN DE CONNEXION -->
+<section id="loginScreen" class="no-print">
+  <div class="login-card">
+    <div class="login-logos">
+      <img src="logo-app.jpg" alt="OBION" onerror="this.style.display='none'">
+      <img src="logo.jpg" alt="Groupe OBION" onerror="this.style.display='none'">
+    </div>
+    <h2>Groupe Scout OBION</h2>
+    <p class="subtitle">Connexion à l'espace de gestion</p>
 
-        <div id="sec-dashboard" class="section">
-            <div id="dashboardContent"></div>
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label for="loginRole">Rôle / Profil</label>
+        <select id="loginRole" onchange="toggleLoginBranch()">
+          <option value="cg">Chef de Groupe (CG)</option>
+          <option value="financier">Financier / Trésorier</option>
+          <option value="cu">Chef d'Unité (CU)</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="loginBranchGroup" style="display:none;">
+        <label for="loginBranch">Branche du Chef d'Unité</label>
+        <select id="loginBranch">
+          <option value="Oisillon">Oisillon</option>
+          <option value="Meute">Meute</option>
+          <option value="Troupe">Troupe</option>
+          <option value="Chemin">Chemin</option>
+          <option value="Route">Route</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="loginPin">Code PIN d'accès</label>
+        <input type="password" id="loginPin" placeholder="Ex: 1234" required>
+      </div>
+
+      <button type="submit" class="btn" style="width:100%;">Se connecter</button>
+    </form>
+
+    <p style="margin-top:14px; font-size:0.76rem; color:var(--muted); text-align:center;">
+      PIN par défaut si non configuré : CG = <strong>1111</strong> · Financier = <strong>2222</strong> · CU = <strong>3333</strong>
+    </p>
+  </div>
+</section>
+
+<!-- APPLICATION PRINCIPALE -->
+<main id="appShell" class="no-print">
+  <div class="user-banner">
+    <div class="actions-row">
+      <strong id="activeUserLabel">Utilisateur</strong>
+      <span id="activeRoleBadge" class="badge badge-green">Rôle</span>
+      <span id="activeScopeBadge" class="badge badge-blue">Périmètre</span>
+    </div>
+    <div class="actions-row">
+      <button type="button" class="btn btn-sm btn-secondary" onclick="exportBackupJson()">💾 Sauvegarde JSON</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="exportEffectifsCsv()">📊 Export CSV Jeunes</button>
+      <button type="button" class="btn btn-sm btn-danger" onclick="handleLogout()">Déconnexion</button>
+    </div>
+  </div>
+
+  <nav class="nav-tabs" id="mainNavTabs">
+    <button type="button" class="nav-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 Tableau de bord</button>
+    <button type="button" class="nav-tab" data-tab="effectifs" onclick="switchTab('effectifs')">⚜️ Effectifs</button>
+    <button type="button" class="nav-tab" data-tab="presences" onclick="switchTab('presences')">✅ Appels & Présences</button>
+    <button type="button" class="nav-tab" data-tab="activites" onclick="switchTab('activites')">📋 Activités Maîtrise</button>
+    <button type="button" class="nav-tab" data-tab="camps" onclick="switchTab('camps')">⛺ Camps</button>
+    <button type="button" class="nav-tab" data-tab="pedagogie" onclick="switchTab('pedagogie')">📘 Pédagogie</button>
+    <button type="button" class="nav-tab" data-tab="materiel" onclick="switchTab('materiel')">🎒 Matériel</button>
+    <button type="button" class="nav-tab" data-tab="finances" onclick="switchTab('finances')">💰 Finances & Dons</button>
+    <button type="button" class="nav-tab" data-tab="annonces" onclick="switchTab('annonces')">📢 Annonces Parents</button>
+    <button type="button" class="nav-tab" data-tab="parametres" onclick="switchTab('parametres')">⚙️ Paramètres</button>
+  </nav>
+
+  <!-- 1. TABLEAU DE BORD -->
+  <section id="tab-dashboard" class="tab-panel active">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Vue d'ensemble & Statistiques d'effectifs</h2>
+        <div class="actions-row">
+          <button type="button" class="btn btn-sm btn-success" onclick="switchTab('presences')">⚡ Appel rapide</button>
+          <button type="button" class="btn btn-sm btn-info" onclick="switchTab('annonces')">📢 Info parents</button>
+          <button type="button" class="btn btn-sm btn-accent" id="btnQuickReceiptDash" onclick="openReceiptModal()">🧾 Nouveau reçu</button>
         </div>
+      </div>
 
-        <div id="sec-programme" class="section hidden">
-            <div class="card">
-                <h2 class="card-header" id="formTitleProg">🗓️ Ajouter une activité au programme annuel</h2>
-                <input type="hidden" id="prog_id" value="">
-                <div class="grid-form">
-                    <div class="form-group"><label>Titre de l'activité *</label><input type="text" id="prog_titre" placeholder="Ex: Sortie découverte / Camp de Pâques"></div>
-                    <div class="form-group">
-                        <label>Type d'activité *</label>
-                        <select id="prog_type" onchange="toggleProgCampFields()">
-                            <option value="Réunion d'unité">Réunion d'unité</option>
-                            <option value="Sortie">Sortie</option>
-                            <option value="Camp / Week-end">Camp / Week-end (relié aux Camps)</option>
-                            <option value="Cérémonie">Cérémonie / Messe / Promesse</option>
-                            <option value="Service communautaire">Service communautaire</option>
-                            <option value="Conseil de maîtrise">Conseil de maîtrise</option>
-                        </select>
-                    </div>
-                    <div class="form-group"><label>Date de début *</label><input type="date" id="prog_debut"></div>
-                    <div class="form-group"><label>Date de fin (optionnel)</label><input type="date" id="prog_fin"></div>
-                    <div class="form-group"><label>Lieu</label><input type="text" id="prog_lieu" placeholder="Ex: Paroisse / Forêt du Banco"></div>
-                    <div class="form-group">
-                        <label>Branche concernée *</label>
-                        <select id="prog_branche">
-                            <option value="Toutes">Toutes (Groupe)</option>
-                            <option>Oisillon</option>
-                            <option>Meute</option>
-                            <option>Troupe</option>
-                            <option>Chemin</option>
-                            <option>Route</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Statut</label>
-                        <select id="prog_statut">
-                            <option value="À préparer">À préparer</option>
-                            <option value="En préparation">En préparation</option>
-                            <option value="Prêt">Prêt</option>
-                            <option value="Réalisé">Réalisé</option>
-                            <option value="Reporté">Reporté</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="prog_frais_group">
-                        <label>Montant à payer par jeune (FCFA)</label>
-                        <input type="number" id="prog_frais" value="0" min="0">
-                    </div>
-                    <div class="form-group" style="grid-column: 1/-1;">
-                        <label>Notes / Objectifs à faire à temps</label>
-                        <textarea id="prog_notes" rows="2" placeholder="Points d'attention, matériel, consignes parents..."></textarea>
-                    </div>
-                </div>
-                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;">
-                    <button class="btn btn-main" style="flex:1; margin-top:0; background:#2980b9;" onclick="saveProgrammeItem()">✅ Enregistrer dans le programme</button>
-                    <button class="btn btn-secondary" onclick="resetProgrammeForm()">↺ Réinitialiser</button>
-                </div>
-            </div>
+      <div class="grid-4" id="dashKpiGrid"></div>
 
-            <div class="card" style="padding: 12px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content:space-between;">
-                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                    <label style="font-weight:bold;">Filtrer :</label>
-                    <select id="filterProgBranche" onchange="renderProgramme()">
-                        <option value="Toutes">Toutes les branches</option>
-                        <option>Oisillon</option>
-                        <option>Meute</option>
-                        <option>Troupe</option>
-                        <option>Chemin</option>
-                        <option>Route</option>
-                    </select>
-                    <select id="filterProgStatut" onchange="renderProgramme()">
-                        <option value="Tous">Tous les statuts</option>
-                        <option value="À préparer">À préparer</option>
-                        <option value="En préparation">En préparation</option>
-                        <option value="Prêt">Prêt</option>
-                        <option value="Réalisé">Réalisé</option>
-                        <option value="Reporté">Reporté</option>
-                    </select>
-                </div>
-                <button class="btn btn-secondary" onclick="printProgramme()">🖨️ Imprimer le programme annuel</button>
-            </div>
-
-            <div class="list-grid" id="programmeList"></div>
+      <div style="margin-top:16px;">
+        <h3 style="font-size:0.95rem; margin-bottom:8px; color:var(--primary);">Répartition par sexe & pourcentages (Jeunes & Maîtrise)</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Périmètre / Branche</th>
+                <th>Total Jeunes</th>
+                <th>Garçons</th>
+                <th>Filles</th>
+                <th>Chefs</th>
+              </tr>
+            </thead>
+            <tbody id="dashGenderTableBody"></tbody>
+          </table>
         </div>
-
-        <div id="sec-effectifs" class="section hidden">
-            <div class="card" id="csvEffectifsCard" style="background: #e8f5e9; border-left: 5px solid #27ae60;">
-                <h3 style="color: #27ae60; font-size: 1.1rem; margin-bottom: 5px;">📥 Importation & Exportation (CSV)</h3>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="btn btn-secondary" onclick="downloadCsvTemplate()">1. Télécharger le modèle</button>
-                    <input type="file" id="csvFileInput" accept=".csv" style="display:none;" onchange="importScoutsCSV(event)">
-                    <button class="btn btn-success" onclick="document.getElementById('csvFileInput').click()">2. Importer CSV</button>
-                    <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="exportScoutsCSV()">📤 Exporter Effectifs CSV</button>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2 class="card-header" id="formTitleScout">➕ Inscrire un jeune</h2>
-                <p style="font-size:0.85rem; color:#555; margin-bottom:12px;">
-                    ℹ️ Le jeune figure dans l'effectif dès son inscription. Son <strong>matricule ASCCI</strong> est ajouté par le <strong>Financier / Trésorier</strong> après paiement de la cotisation annuelle (2 500 FCFA : 2 085 FCFA ASCCI + 415 FCFA caisse groupe). Sans paiement effectif, il ne pourra pas participer aux activités.
-                </p>
-                <input type="hidden" id="s_id" value="">
-                <div class="grid-form">
-                    <div class="form-group"><label>Nom complet *</label><input type="text" id="s_nom"></div>
-                    <div class="form-group"><label>Date de Naissance *</label><input type="date" id="s_ddn" onchange="autoBranch()">
-                        <span id="s_age_hint" style="color:var(--c-troupe); font-weight:bold; font-size:0.8rem;"></span>
-                    </div>
-                    <div class="form-group"><label>Branche (Auto)</label><input type="text" id="s_branche" readonly></div>
-                    <div class="form-group"><label>Sous-unité (Patrouille / Sizaine)</label><input type="text" id="s_sousunite"></div>
-                    <div class="form-group"><label>Rôle dans l'unité</label><input type="text" id="s_role"></div>
-                    <div class="form-group"><label>Contact Parent *</label><input type="tel" id="s_tel" placeholder="N° du parent"></div>
-                    <div class="form-group"><label>Contact Jeune (Chemin/Route)</label><input type="tel" id="s_tel_perso" placeholder="Facultatif"></div>
-                    <div class="form-group"><label>Parrain / Marraine</label><input type="text" id="s_parrain"></div>
-                    <div class="form-group"><label>Contact Parrain / Marraine</label><input type="tel" id="s_parrain_tel" placeholder="N° du parrain"></div>
-                    <div class="form-group"><label>Groupe Sanguin</label><select id="s_sang"><option>Inconnu</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
-                    <div class="form-group"><label>Allergies / Médicaments</label><input type="text" id="s_medical"></div>
-                    <div class="form-group" style="grid-column: 1/-1;"><label>Contact Urgence</label><input type="text" id="s_urgence"></div>
-                </div>
-                <button class="btn btn-main" onclick="saveScout()">✅ Enregistrer le Dossier</button>
-            </div>
-
-            <div class="card" style="padding: 10px 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-                <input type="text" id="searchScout" placeholder="🔍 Rechercher un nom..." style="flex:1" oninput="renderScouts()">
-                <select id="filterScout" onchange="renderScouts()"><option value="Tous">Toutes les branches</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select>
-            </div>
-            <div class="list-grid" id="scoutList"></div>
-        </div>
-
-        <div id="sec-pedagogie" class="section hidden">
-            <div class="card">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-bottom: 2px solid #eee; padding-bottom:10px; margin-bottom: 15px;">
-                    <h2 style="font-size: 1.2rem; color: var(--text-main);">🎓 Tableau de Bord Pédagogique</h2>
-                    <button class="btn btn-warning" id="btnCmdInsignes" onclick="generateCommandes()">🛒 Commande d'Insignes</button>
-                </div>
-
-                <div style="margin-bottom: 15px;">
-                    <label style="font-weight:bold;">Filtrer par branche : </label>
-                    <select id="filterPeda" onchange="renderPedagogie()" style="padding: 8px; border-radius: 5px;">
-                        <option value="Toutes">Vue Globale</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option>
-                    </select>
-                </div>
-                <div class="table-responsive">
-                    <table id="tablePeda">
-                        <thead><tr><th>Matricule ASCCI</th><th>Nom & Unité</th><th>Totem</th><th>Progression Globale</th><th>Objectif (En route vers)</th><th>Action</th></tr></thead>
-                        <tbody id="pedaList"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div id="sec-camps" class="section hidden">
-            <div class="card">
-                <h2 class="card-header">🏕️ Organiser un Camp / Week-end</h2>
-                <div class="grid-form">
-                    <div class="form-group"><label>Titre de l'événement *</label><input type="text" id="camp_titre" placeholder="Ex: Camp de Pâques 2026"></div>
-                    <div class="form-group"><label>Lieu *</label><input type="text" id="camp_lieu"></div>
-                    <div class="form-group"><label>Date de Début *</label><input type="date" id="camp_debut"></div>
-                    <div class="form-group"><label>Date de Fin *</label><input type="date" id="camp_fin"></div>
-                    <div class="form-group"><label>Branche *</label><select id="camp_branche"><option value="Toutes">Toutes (Camp de Groupe)</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
-                    <div class="form-group"><label>Montant à payer par jeune (FCFA) *</label><input type="number" id="camp_frais" value="0"></div>
-                </div>
-                <button class="btn btn-main" style="background:#d35400;" onclick="saveCamp()">✅ Créer / Sauvegarder le Camp</button>
-            </div>
-            <div class="list-grid" id="campList"></div>
-        </div>
-
-        <div id="sec-presences" class="section hidden">
-            <div class="card">
-                <h2 class="card-header">📅 Planifier ou Faire l'Appel (Réunions)</h2>
-                <div class="grid-form">
-                    <div class="form-group"><label>Date *</label><input type="date" id="p_date"></div>
-                    <div class="form-group"><label>Titre de l'activité *</label><input type="text" id="p_titre"></div>
-                    <div class="form-group"><label>Branche convoquée *</label><select id="p_branche" onchange="genAppel()"><option value="">Sélectionner...</option><option value="Toutes">Tout le groupe</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
-                    <div class="form-group"><label>Chef Responsable *</label><input type="text" id="p_resp" readonly style="background:#eee; font-weight:bold;"></div>
-                </div>
-                <button class="btn btn-secondary" style="margin-top:15px;" onclick="genAppel()">Lister les scouts pour l'appel</button>
-                <div id="appelBox" style="margin-top: 15px; border: 1px solid #ccc; padding: 10px; border-radius: 8px; max-height: 300px; overflow-y:auto; display:none;"></div>
-                <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="savePresence()">✅ Valider l'appel</button>
-            </div>
-            <div class="list-grid" id="presenceList"></div>
-        </div>
-
-        <div id="sec-materiel" class="section hidden">
-            <div class="card">
-                <h2 class="card-header">⛺ Inventaire du Matériel</h2>
-                <div class="grid-form">
-                    <div class="form-group"><label>Nom de l'article *</label><input type="text" id="m_nom"></div>
-                    <div class="form-group"><label>Catégorie</label><select id="m_cat"><option>Tentes et Abris</option><option>Cuisine</option><option>Outils Pionnérisme</option><option>Pharmacie</option><option>Pédagogie / Jeux</option></select></div>
-                    <div class="form-group"><label>Quantité</label><input type="number" id="m_qte" value="1"></div>
-                    <div class="form-group"><label>État</label><select id="m_etat"><option>Neuf</option><option>Bon</option><option>Moyen</option><option>À réparer</option></select></div>
-                    <div class="form-group" style="grid-column: 1/-1;"><label>Lieu de stockage / Responsable *</label><input type="text" id="m_resp"></div>
-                </div>
-                <button class="btn" style="background:#8e44ad; width:100%; margin-top:15px; color:white;" onclick="saveMateriel()">✅ Ajouter au stock</button>
-            </div>
-            <div class="list-grid" id="materielList"></div>
-        </div>
-
-        <div id="sec-parrains" class="section hidden">
-            <div class="card" style="text-align:center;">
-                <h2 style="color:#e67e22; margin-bottom:10px;">🤝 Registre des Parrains & Marraines</h2>
-            </div>
-            <div class="list-grid" id="parrainList"></div>
-        </div>
-
-        <div id="sec-maitrise" class="section hidden">
-            <div class="card" id="maitriseFormCard">
-                <h2 class="card-header">👔 Gérer la Maîtrise</h2>
-                <input type="hidden" id="c_id" value="">
-                <div class="grid-form">
-                    <div class="form-group"><label>Nom complet *</label><input type="text" id="c_nom"></div>
-                    <div class="form-group"><label>Titre (Branche / Direction) *</label><select id="c_titre"><option>Micou</option><option>Akela</option><option>Chef de Troupe</option><option>Safouin</option><option>Chef de Groupe Adjoint</option><option>Coordinateur</option><option>Groupe et ressources adultes</option></select></div>
-                    <div class="form-group"><label>Fonction / Grade *</label><select id="c_fonction"><option>Chef d'Unité (CU)</option><option>Chef d'Unité Adjoint (CUA)</option><option>Assistant Chef d'Unité (ACU)</option><option>Trésorier / Financier</option><option>Membre du Comité</option></select></div>
-                    <div class="form-group"><label>Téléphone *</label><input type="tel" id="c_tel"></div>
-                    <div class="form-group"><label>Code PIN (4 chiffres) *</label><input type="password" id="c_pin" maxlength="4" placeholder="Ex: 1234"></div>
-                    <div class="form-group" style="justify-content:center;">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-main);">
-                            <input type="checkbox" id="c_est_tresorier">
-                            Nommer comme Trésorier (peut être un CU ou le CG)
-                        </label>
-                    </div>
-                </div>
-                <button class="btn btn-main" style="background:var(--c-cg);" onclick="saveChef()">✅ Enregistrer le Responsable</button>
-            </div>
-            <div class="list-grid" id="chefList"></div>
-        </div>
-
-        <div id="sec-finances" class="section hidden">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 15px; margin-bottom: 20px;">
-                <div class="card" style="text-align:center; border-bottom: 4px solid #27ae60;"><h4>Entrées</h4><h2 style="color:#27ae60;" id="f_tot_in">0</h2></div>
-                <div class="card" style="text-align:center; border-bottom: 4px solid #c0392b;"><h4>Sorties</h4><h2 style="color:#c0392b;" id="f_tot_out">0</h2></div>
-                <div class="card" style="text-align:center; border-bottom: 4px solid var(--text-main);"><h4>Solde Caisse</h4><h2 style="color:var(--text-main);" id="f_solde">0</h2></div>
-                <div class="card" style="text-align:center; border-bottom: 4px solid #2980b9;"><h4>Part ASCCI / Caisse Groupe</h4><p id="f_split_coti" style="font-size:0.9rem; margin-top:6px; font-weight:bold;">ASCCI : 0 FCFA<br>Caisse : 0 FCFA</p></div>
-            </div>
-
-            <div class="card" style="border-left: 5px solid #0a1f44;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-                    <h2 class="card-header" style="margin-bottom:0; padding-bottom:0; border-bottom:none;">📆 Point Mensuel des Finances</h2>
-                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                        <input type="month" id="f_point_mois" onchange="renderPointMensuel()">
-                        <button class="btn btn-secondary" onclick="printPointMensuel()">🖨️ Imprimer le point du mois</button>
-                    </div>
-                </div>
-
-                <div class="grid-form" style="margin-bottom:15px;">
-                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #27ae60;">
-                        <small>Entrées du mois</small>
-                        <h3 style="color:#27ae60; margin-top:5px;" id="pm_in">0 FCFA</h3>
-                    </div>
-                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #c0392b;">
-                        <small>Sorties du mois</small>
-                        <h3 style="color:#c0392b; margin-top:5px;" id="pm_out">0 FCFA</h3>
-                    </div>
-                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #0a1f44;">
-                        <small>Solde du mois</small>
-                        <h3 style="color:#0a1f44; margin-top:5px;" id="pm_solde">0 FCFA</h3>
-                    </div>
-                    <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #2980b9;">
-                        <small>Cotisations mensuelles du mois</small>
-                        <p style="font-size:0.88rem; font-weight:bold; margin-top:6px;" id="pm_cotis">Jeunes : 0/0 • Chefs : 0/0</p>
-                    </div>
-                </div>
-
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Catégorie</th>
-                                <th>Motif</th>
-                                <th>Montant</th>
-                            </tr>
-                        </thead>
-                        <tbody id="pointMensuelList"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card" style="border-left: 5px solid #8e44ad;">
-                <h2 class="card-header">✅ Validation Rapide des Cotisations (Annuelles & Mensuelles)</h2>
-                <div class="grid-form" style="margin-bottom:12px;">
-                    <div class="form-group">
-                        <label>Mois suivi (pour cotisations mensuelles)</label>
-                        <input type="month" id="cot_mois_cible" onchange="renderCotisationsValidation()">
-                    </div>
-                    <div class="form-group">
-                        <label>Filtrer par catégorie</label>
-                        <select id="cot_filtre_type" onchange="renderCotisationsValidation()">
-                            <option value="tous">Tous (Jeunes & Maîtrise)</option>
-                            <option value="jeunes">Jeunes uniquement</option>
-                            <option value="chefs">Maîtrise uniquement</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Membre</th>
-                                <th>Cotisation Annuelle</th>
-                                <th>Cotisation Mensuelle (mois choisi)</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cotisationsValidationList"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card" style="border-left: 5px solid #2980b9;">
-                <h2 class="card-header">💳 Tarifs des Cotisations (Fixés par le Financier / Trésorier)</h2>
-                <div class="grid-form">
-                    <div class="form-group"><label>Cotisation Annuelle Jeune (FCFA)</label><input type="number" id="fin_cot_j_total" value="2500" readonly></div>
-                    <div class="form-group"><label>Part Nationale ASCCI (FCFA)</label><input type="number" id="fin_cot_j_ascci" value="2085" readonly></div>
-                    <div class="form-group"><label>Part Caisse Groupe (FCFA)</label><input type="number" id="fin_cot_j_groupe" value="415" readonly></div>
-                    <div class="form-group"><label>Cotisation Annuelle CU (FCFA)</label><input type="number" id="fin_cot_cu" value="2600" readonly></div>
-                    <div class="form-group"><label>Cotisation Annuelle CG (FCFA)</label><input type="number" id="fin_cot_cg" value="3000" readonly></div>
-                    <div class="form-group"><label>Cotisation Mensuelle Jeune (FCFA)</label><input type="number" id="fin_cot_mens_j" min="0" value="0"></div>
-                    <div class="form-group"><label>Cotisation Mensuelle Chef (FCFA)</label><input type="number" id="fin_cot_mens_c" min="0" value="0"></div>
-                </div>
-                <button class="btn btn-main" style="width:auto; margin-top:12px; background:#2980b9;" onclick="saveTarifsFinancier()">💾 Enregistrer les cotisations mensuelles</button>
-            </div>
-
-            <div class="card" style="border-left: 5px solid #27ae60;">
-                <h2 class="card-header">🪪 Attribution des Matricules ASCCI (Après paiement annuel)</h2>
-                <p style="font-size:0.85rem; color:#555; margin-bottom:12px;">Ajoutez ou mettez à jour le numéro de matricule ASCCI des jeunes ayant réglé leur cotisation annuelle.</p>
-                <div class="table-responsive">
-                    <table>
-                        <thead><tr><th>Jeune & Branche</th><th>Cotisation Annuelle</th><th>Matricule ASCCI</th><th>Action</th></tr></thead>
-                        <tbody id="matriculeAssignList"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2 class="card-header">💰 Nouvelle Opération</h2>
-                <div class="grid-form">
-                    <div class="form-group"><label>Type</label><select id="f_type"><option value="in">🟢 Entrée</option><option value="out">🔴 Sortie</option></select></div>
-                    <div class="form-group"><label>Catégorie</label><select id="f_cat" onchange="checkCotisation()"><option>Cotisation Annuelle</option><option>Cotisation Mensuelle</option><option>Quota Activité / Camp</option><option>AGR</option><option>Achat Matériel</option><option>Transport</option><option>Alimentation (Intendance)</option><option>Autre</option></select></div>
-                    <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="f_montant"></div>
-                    <div class="form-group"><label>Date</label><input type="date" id="f_date"></div>
-                    <div class="form-group" style="grid-column: 1/-1;"><label>Motif / Détails *</label><input type="text" id="f_motif"></div>
-
-                    <div class="form-group" id="f_scout_link" style="grid-column: 1/-1; background:#e8f5e9; padding:15px; border-radius:5px; border:1px solid #c8e6c9; display:none;">
-                        <label style="color:#27ae60; font-weight:bold; margin-bottom:5px;">✓ Lier ce paiement à un Membre</label>
-                        <select id="f_scout_select" style="width:100%; margin-bottom:8px;"><option value="">Sélectionner le membre qui vient de payer...</option></select>
-                        <div id="f_matricule_box" style="display:none;">
-                            <label style="font-size:0.85rem; font-weight:bold; color:#0a1f44;">Matricule ASCCI à attribuer (optionnel maintenant, modifiable ci-dessus) :</label>
-                            <input type="text" id="f_new_matricule" placeholder="Ex: ASCCI-2026-014" style="width:100%; margin-top:4px;">
-                        </div>
-                    </div>
-                </div>
-                <button class="btn btn-warning" style="width:100%; margin-top:15px;" onclick="saveFinance()">Enregistrer l'opération</button>
-            </div>
-
-            <div class="card table-responsive">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
-                    <h3>Livre de Caisse</h3>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button class="btn btn-success" onclick="exportFinancesCSV()">📤 Export CSV</button>
-                        <button class="btn btn-secondary" onclick="printCaisse()">📄 Bilan PDF</button>
-                    </div>
-                </div>
-                <table id="tableFinance"><thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th><th class="no-print">Action</th></tr></thead><tbody id="financeList"></tbody></table>
-            </div>
-        </div>
-
-        <div id="sec-parametres" class="section hidden">
-            <div class="card" style="border-left: 5px solid var(--c-cg);">
-                <h2 class="card-header">⚙️ Infos Groupe, Logos & Cachet Numérique</h2>
-                <div class="grid-form">
-                    <div class="form-group"><label>Nom du Chef de Groupe *</label><input type="text" id="cfg_cg_nom" placeholder="Ex: Jean DUPONT"></div>
-                    <div class="form-group"><label>Contact du Chef de Groupe *</label><input type="tel" id="cfg_cg_tel" placeholder="Ex: 01 02 03 04 05"></div>
-                    <div class="form-group"><label>Logo de l'Appli (Icône / Appli)</label><input type="text" id="cfg_logo_app" placeholder="logo-app.jpg"></div>
-                    <div class="form-group"><label>Logo District (Haut gauche PDF)</label><input type="text" id="cfg_logo_district" placeholder="logo-district.jpg"></div>
-                    <div class="form-group"><label>Logo Groupe (Haut droite PDF / Header)</label><input type="text" id="cfg_logo_groupe" placeholder="logo.jpg"></div>
-                    <div class="form-group"><label>Cotisation Jeune Total / ASCCI / Caisse</label><input type="text" value="2 500 FCFA (2 085 ASCCI + 415 Groupe)" readonly></div>
-                    <div class="form-group"><label>Cotisation Annuelle CU (FCFA)</label><input type="number" id="cfg_cot_cu" value="2600"></div>
-                    <div class="form-group"><label>Cotisation Annuelle CG (FCFA)</label><input type="number" id="cfg_cot_cg" value="3000"></div>
-                    <div class="form-group" style="grid-column: 1/-1; justify-content:center;">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-main);">
-                            <input type="checkbox" id="cfg_cachet_actif" checked>
-                            Inclure le cachet numérique du Chef de Groupe par défaut sur les documents imprimables
-                        </label>
-                    </div>
-                </div>
-                <button class="btn btn-main" style="background:var(--c-cg);" onclick="saveSettings()">💾 Enregistrer les informations</button>
-            </div>
-
-            <div class="card" style="border-left: 5px solid #2980b9;">
-                <h2 class="card-header">💾 Sauvegarde & Restauration JSON</h2>
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="exportBackupJSON()">⬇️ Exporter sauvegarde JSON</button>
-                    <input type="file" id="jsonBackupInput" accept=".json" style="display:none;" onchange="importBackupJSON(event)">
-                    <button class="btn btn-secondary" onclick="document.getElementById('jsonBackupInput').click()">⬆️ Restaurer sauvegarde JSON</button>
-                </div>
-            </div>
-
-            <div class="card" style="border-left: 5px solid #f39c12;">
-                <h2 class="card-header">🚀 Les Montées (Nouvelle Année Scoute)</h2>
-                <button class="btn btn-warning" onclick="cloturerAnnee()">🔄 Clôturer l'année et remettre les cotisations à Impayé</button>
-            </div>
-
-            <div class="card">
-                <h2 class="card-header">✏️ Éditeur de Progression ASCCI</h2>
-                <div class="grid-form" style="grid-template-columns: 1fr;">
-                    <div class="form-group"><label style="color:var(--c-oisillon);">Oisillon</label><input type="text" id="cfg_prog_oisillon"></div>
-                    <div class="form-group"><label style="color:var(--c-meute);">Meute</label><input type="text" id="cfg_prog_meute"></div>
-                    <div class="form-group"><label style="color:var(--c-troupe);">Troupe</label><input type="text" id="cfg_prog_troupe"></div>
-                    <div class="form-group"><label style="color:var(--c-chemin);">Chemin</label><input type="text" id="cfg_prog_chemin"></div>
-                    <div class="form-group"><label style="color:var(--c-route);">Route</label><input type="text" id="cfg_prog_route"></div>
-                </div>
-                <button class="btn btn-main" onclick="saveProgSettings()">💾 Mettre à jour les progressions</button>
-            </div>
-        </div>
-
+      </div>
     </div>
 
-    <div id="printArea"></div>
-</div>
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">🔔 Alertes & Points d'attention</h2>
+      </div>
+      <div id="dashAlertsContainer"></div>
+    </div>
+  </section>
 
-<div class="modal" id="modalProgChecklist">
-    <div class="modal-content">
-        <button class="close-modal" onclick="closeM('modalProgChecklist')">&times;</button>
-        <h2 id="mpc_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
-        <p id="mpc_meta" style="color:#666; font-size:0.9rem; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
-        <div id="mpc_tasks" style="display:flex; flex-direction:column; gap:8px; background:#f9f9f9; padding:12px; border-radius:8px;"></div>
-        <div style="display:flex; gap:8px; margin-top:12px;">
-            <input type="text" id="mpc_new_task" placeholder="Nouvelle tâche à faire à temps..." style="flex:1;">
-            <button class="btn btn-secondary" onclick="addChecklistTaskToModal()">+ Ajouter</button>
+  <!-- 2. EFFECTIFS -->
+  <section id="tab-effectifs" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Effectifs des Jeunes</h2>
+        <div class="actions-row">
+          <select id="filterScoutBranche" onchange="renderEffectifs()" style="width:auto; min-width:150px;">
+            <option value="Toutes">Toutes les branches</option>
+            <option value="Oisillon">Oisillon</option>
+            <option value="Meute">Meute</option>
+            <option value="Troupe">Troupe</option>
+            <option value="Chemin">Chemin</option>
+            <option value="Route">Route</option>
+          </select>
+          <input type="search" id="searchScoutInput" oninput="renderEffectifs()" placeholder="Rechercher nom, matricule..." style="width:auto; min-width:180px;">
+          <button type="button" class="btn btn-sm" onclick="openScoutModal()">+ Ajouter un jeune</button>
         </div>
-        <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="saveChecklistFromModal()">✅ Enregistrer le suivi</button>
-    </div>
-</div>
+      </div>
 
-<div class="modal" id="modalWaInfo">
-    <div class="modal-content">
-        <button class="close-modal" onclick="closeM('modalWaInfo')">&times;</button>
-        <h2 id="mwa_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
-        <p style="color:#666; font-size:0.85rem; margin-bottom:12px;">Modifie le message si besoin, puis clique sur <strong>WhatsApp</strong> pour chaque parent concerné.</p>
-        <div class="form-group" style="margin-bottom:15px;">
-            <label>Message aux parents :</label>
-            <textarea id="mwa_message" rows="5" oninput="refreshWaRecipientsList()"></textarea>
+      <div id="scoutStatsBar" class="grid-4" style="margin-bottom:14px;"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom & Prénoms</th>
+              <th>Branche</th>
+              <th>Sexe</th>
+              <th>Tenue</th>
+              <th>Parent & Contact</th>
+              <th>Cotisation / Matricule</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="scoutsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="chefsSectionCard">
+      <div class="card-header">
+        <h2 class="card-title">Maîtrise / Chefs du Groupe</h2>
+        <button type="button" class="btn btn-sm" id="btnAddChef" onclick="openChefModal()">+ Ajouter un chef</button>
+      </div>
+      <div id="chefsStatsBar" class="kpi-box" style="margin-bottom:12px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom & Prénoms</th>
+              <th>Fonction</th>
+              <th>Branche</th>
+              <th>Sexe</th>
+              <th>Téléphone</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="chefsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. APPELS & PRÉSENCES -->
+  <section id="tab-presences" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Appel simplifié & Présences</h2>
+        <div class="actions-row">
+          <select id="appelBrancheSelect" onchange="renderQuickAppel()" style="width:auto; min-width:150px;">
+            <option value="Oisillon">Oisillon</option>
+            <option value="Meute">Meute</option>
+            <option value="Troupe">Troupe</option>
+            <option value="Chemin">Chemin</option>
+            <option value="Route">Route</option>
+            <option value="Toutes">Toutes branches</option>
+          </select>
+          <input type="date" id="appelDateInput" style="width:auto;">
+          <input type="text" id="appelThemeInput" placeholder="Thème / Réunion du jour" style="width:auto; min-width:180px;">
         </div>
-        <div id="mwa_recipients" style="display:flex; flex-direction:column; gap:8px;"></div>
-    </div>
-</div>
+      </div>
 
-<div class="modal" id="modalPeda">
-    <div class="modal-content">
-        <button class="close-modal" onclick="closeM('modalPeda')">&times;</button>
-        <h2 id="mp_nom" style="color:var(--text-main); margin-bottom:5px;"></h2>
-        <p id="mp_info" style="color:#666; font-size:0.9rem; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
-        <div class="grid-form" style="margin-bottom:15px;"><div class="form-group"><label>Totem :</label><input type="text" id="mp_totem"></div></div>
-        <h4 style="margin-top: 10px; color: var(--text-main);">Étapes de progression :</h4>
-        <div id="mp_etapes" style="background:#f9f9f9; padding:15px; border-radius:8px; display:flex; flex-direction:column; gap:12px;"></div>
-        <div class="form-group" style="margin-top:20px;"><label style="color:var(--text-main);">📝 Carnet de suivi du Chef (Observations) :</label><textarea id="mp_obs" rows="4"></textarea></div>
-        <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="savePeda()">✅ Enregistrer la progression</button>
-    </div>
-</div>
+      <div class="actions-row" style="margin-bottom:12px;">
+        <button type="button" class="btn btn-sm btn-secondary" onclick="markAllAppel('Présent')">Tout marquer Présent</button>
+        <button type="button" class="btn btn-sm btn-success" onclick="saveQuickAppel()">💾 Enregistrer l'appel</button>
+      </div>
 
-<div class="modal" id="modalPresDetails">
-    <div class="modal-content">
-        <button class="close-modal" onclick="closeM('modalPresDetails')">&times;</button>
-        <h2 id="mpres_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
-        <p id="mpres_date" style="color: #666;"></p>
-        <p id="mpres_resp" style="color: #666; margin-bottom: 15px; font-weight: bold; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
-            <button class="btn btn-success" style="flex:1;" onclick="copyWhatsApp()">📱 Copier Rapport WhatsApp</button>
-            <button class="btn btn-secondary" style="flex:1;" onclick="printPresence()">📄 Imprimer Fiche PDF</button>
+      <div id="quickAppelList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Historique des appels enregistrés</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Branche</th>
+              <th>Thème</th>
+              <th>Présents</th>
+              <th>Absents</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="presencesHistoryBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. ACTIVITÉS DE MAÎTRISE -->
+  <section id="tab-activites" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Activités de Maîtrise (Réunions & Formations)</h2>
+        <div class="actions-row">
+          <select id="filterActiviteCible" onchange="renderActivites()" style="width:auto;">
+            <option value="all">Toutes les cibles visibles</option>
+            <option value="tous_chefs">Tous les chefs</option>
+            <option value="cu_only">CU uniquement</option>
+            <option value="cg_only">CG uniquement</option>
+          </select>
+          <button type="button" class="btn btn-sm" id="btnAddActivite" onclick="openActiviteModal()">+ Nouvelle activité</button>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-            <div>
-                <h4 style="color:#27ae60; border-bottom: 2px solid #eee; padding-bottom:5px;">✅ Présents (<span id="count_p">0</span>)</h4>
-                <ul id="list_p" style="list-style:none; margin-top:10px; line-height:1.8;"></ul>
-            </div>
-            <div>
-                <h4 style="color:#e74c3c; border-bottom: 2px solid #eee; padding-bottom:5px;">❌ Absents (<span id="count_a">0</span>)</h4>
-                <ul id="list_a" style="list-style:none; margin-top:10px; line-height:1.8;"></ul>
-            </div>
+      </div>
+      <p style="font-size:0.84rem; color:var(--muted); margin-bottom:12px;">
+        Les réunions et formations de maîtrise sont distinctes des camps des jeunes. Un CU ne voit que les activités qui le concernent (CU seul et Tous les chefs).
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Titre / Objet</th>
+              <th>Cible</th>
+              <th>Lieu / Notes</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="activitesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. CAMPS -->
+  <section id="tab-camps" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Camps des Jeunes & Supervision</h2>
+        <div class="actions-row">
+          <select id="filterCampScope" onchange="renderCamps()" style="width:auto;">
+            <option value="all">Tous types</option>
+            <option value="branche">Camp de branche</option>
+            <option value="groupe">Camp de groupe</option>
+            <option value="national">Camp national</option>
+          </select>
+          <button type="button" class="btn btn-sm" id="btnAddCamp" onclick="openCampModal()">+ Nouveau camp</button>
         </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom du camp</th>
+              <th>Type & Branche</th>
+              <th>Dates & Lieu</th>
+              <th>Superviseurs</th>
+              <th>Frais / Paiements</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="campsTableBody"></tbody>
+        </table>
+      </div>
     </div>
+  </section>
+
+  <!-- 6. PÉDAGOGIE -->
+  <section id="tab-pedagogie" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Carnet de Progression Pédagogique</h2>
+        <select id="pedagoBrancheSelect" onchange="renderPedagogie()" style="width:auto; min-width:150px;">
+          <option value="Toutes">Toutes les branches</option>
+          <option value="Oisillon">Oisillon</option>
+          <option value="Meute">Meute</option>
+          <option value="Troupe">Troupe</option>
+          <option value="Chemin">Chemin</option>
+          <option value="Route">Route</option>
+        </select>
+      </div>
+      <div id="pedagoReferentielBox" class="kpi-box" style="margin-bottom:14px;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Jeune</th>
+              <th>Branche</th>
+              <th>Étape actuelle</th>
+              <th>Notes pédagogiques</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="pedagoTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. MATÉRIEL -->
+  <section id="tab-materiel" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Inventaire du Matériel</h2>
+        <button type="button" class="btn btn-sm" onclick="openMaterielModal()">+ Ajouter du matériel</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Désignation</th>
+              <th>Quantité</th>
+              <th>État</th>
+              <th>Affectation / Branche</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="materielTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. FINANCES & DONS -->
+  <section id="tab-finances" class="tab-panel">
+    <div id="waveTresorerieBox" class="wave-box">
+      <div>
+        <strong>🌊 Raccourci Encaissement / Wave Business (Trésorerie)</strong><br>
+        <small id="waveTresorerieUrlLabel" style="color:#334155;"></small>
+      </div>
+      <div class="actions-row">
+        <a id="waveTresorerieLinkBtn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-info">Ouvrir le lien</a>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="copyWavePaymentLink()">Copier le lien</button>
+        <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptModal()">🧾 Générer un reçu</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Synthèse Trésorerie & Reversement ECC / Matricules</h2>
+        <div class="actions-row">
+          <input type="month" id="financeMonthPicker" onchange="renderFinances()" style="width:auto;">
+          <button type="button" class="btn btn-sm btn-secondary" onclick="printPointMensuel()">🖨️ Imprimer point mensuel</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptModal()">🧾 Reçu parent</button>
+        </div>
+      </div>
+
+      <div class="grid-4" id="financeKpiGrid"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Écritures Financières (Gestion souple du Financier)</h2>
+        <button type="button" class="btn btn-sm btn-success" id="btnAddFinanceEntry" onclick="openFinanceModal()">+ Ajouter une écriture</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Catégorie</th>
+              <th>Libellé / Membre</th>
+              <th>Montant (FCFA)</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="financesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">🎁 Dons reçus (Financiers & En nature)</h2>
+        <button type="button" class="btn btn-sm btn-info" onclick="openDonModal()">+ Enregistrer un don</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Donateur</th>
+              <th>Nature</th>
+              <th>Détails / Montant</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="donsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">📜 Journal d'activité financière (Transparence)</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date / Heure</th>
+              <th>Auteur</th>
+              <th>Action</th>
+              <th>Détail</th>
+            </tr>
+          </thead>
+          <tbody id="auditLogTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. ANNONCES PARENTS -->
+  <section id="tab-annonces" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">📢 Communication & Annonces aux Parents</h2>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="annonceTemplate">Modèle de message</label>
+          <select id="annonceTemplate" onchange="applyAnnonceTemplate()">
+            <option value="cotisation_mensuelle">Cotisation mensuelle des jeunes</option>
+            <option value="eglise_tenue">Activité à l'église (tenue scoute exigée)</option>
+            <option value="tenue_manquante">Tenue scoute à prévoir / manquante</option>
+            <option value="nouvelles_regles">Nouvelles règles / principes du groupe</option>
+            <option value="libre">Message libre</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="annonceTargetMode">Cible des destinataires</label>
+          <select id="annonceTargetMode" onchange="renderAnnonceRecipients()">
+            <option value="tous">Tous les jeunes / parents</option>
+            <option value="branche">Par branche</option>
+            <option value="jeune">Un jeune précis</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="annonceBrancheWrap" style="display:none;">
+          <label for="annonceBrancheSelect">Branche</label>
+          <select id="annonceBrancheSelect" onchange="applyAnnonceTemplate(); renderAnnonceRecipients();">
+            <option value="Oisillon">Oisillon</option>
+            <option value="Meute">Meute</option>
+            <option value="Troupe">Troupe</option>
+            <option value="Chemin">Chemin</option>
+            <option value="Route">Route</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="annonceScoutWrap" style="display:none;">
+          <label for="annonceScoutSelect">Jeune concerné</label>
+          <select id="annonceScoutSelect" onchange="applyAnnonceTemplate(); renderAnnonceRecipients();"></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="annonceTextArea">Texte du message (modifiable avant envoi)</label>
+        <textarea id="annonceTextArea"></textarea>
+      </div>
+
+      <div class="actions-row" style="margin-bottom:16px;">
+        <button type="button" class="btn btn-success" onclick="copyAnnonceMessage()">📋 Copier le message</button>
+      </div>
+
+      <h3 style="font-size:0.95rem; margin-bottom:8px; color:var(--primary);">Contacts parents filtrés (envoi direct WhatsApp)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Jeune</th>
+              <th>Branche</th>
+              <th>Parent & Téléphone</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="annonceRecipientsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. PARAMÈTRES -->
+  <section id="tab-parametres" class="tab-panel">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Paramètres du Groupe OBION, Cotisations & Accès</h2>
+      </div>
+      <form id="settingsForm" onsubmit="saveSettings(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="cfg_cg_nom">Nom du Chef de Groupe</label>
+            <input type="text" id="cfg_cg_nom">
+          </div>
+          <div class="form-group">
+            <label for="cfg_cg_tel">Téléphone du Groupe / CG</label>
+            <input type="text" id="cfg_cg_tel" placeholder="+225...">
+          </div>
+          <div class="form-group">
+            <label for="cfg_wave_url">Lien Wave Business / Raccourci trésorerie</label>
+            <input type="url" id="cfg_wave_url" placeholder="https://pay.wave.com/...">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="cfg_cot_j_total">Cotisation annuelle jeune (FCFA)</label>
+            <input type="number" id="cfg_cot_j_total" min="0">
+          </div>
+          <div class="form-group">
+            <label for="cfg_cot_j_ascci">Part nationale / ECC jeune (FCFA)</label>
+            <input type="number" id="cfg_cot_j_ascci" min="0">
+          </div>
+          <div class="form-group">
+            <label for="cfg_cot_j_groupe">Part caisse groupe jeune (FCFA)</label>
+            <input type="number" id="cfg_cot_j_groupe" min="0">
+          </div>
+          <div class="form-group">
+            <label for="cfg_cot_mens_j">Cotisation mensuelle jeune (FCFA)</label>
+            <input type="number" id="cfg_cot_mens_j" min="0">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="cfg_pin_cg">PIN Chef de Groupe</label>
+            <input type="text" id="cfg_pin_cg">
+          </div>
+          <div class="form-group">
+            <label for="cfg_pin_fin">PIN Financier</label>
+            <input type="text" id="cfg_pin_fin">
+          </div>
+          <div class="form-group">
+            <label for="cfg_pin_cu">PIN Chef d'Unité</label>
+            <input type="text" id="cfg_pin_cu">
+          </div>
+          <div class="form-group">
+            <label for="cfg_cachet_actif">Cachet numérique sur reçus</label>
+            <select id="cfg_cachet_actif">
+              <option value="true">Actif</option>
+              <option value="false">Désactivé</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="cfg_import_json">Restaurer une sauvegarde JSON (optionnel)</label>
+          <input type="file" id="cfg_import_json" accept=".json,application/json" onchange="importBackupJson(event)">
+        </div>
+
+        <button type="submit" class="btn btn-success">💾 Enregistrer les paramètres</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<!-- MODALE GÉNÉRIQUE -->
+<div id="genericModal" class="modal-backdrop no-print" onclick="if(event.target===this) closeModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modalTitle">Fenêtre</h3>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
 </div>
 
-<div class="modal" id="modalAutoConfig">
-    <div class="modal-content">
-        <button class="close-modal" onclick="closeM('modalAutoConfig')">&times;</button>
-        <h2 style="color:var(--text-main); margin-bottom:15px;">Générer l'autorisation parentale</h2>
-        <p style="color:#666; font-size:0.9rem; margin-bottom:10px;">Cible : <strong id="ma_target_name"></strong></p>
-        <div class="form-group" style="margin-bottom:15px;"><label>Personnalisez le texte de l'activité :</label><textarea id="ma_custom_text" rows="3">à participer au camp de [Lieu] qui se tiendra du [Date] au [Date].</textarea></div>
-        <label style="display:flex; align-items:center; gap:8px; margin-bottom:15px; font-size:0.9rem;">
-            <input type="checkbox" id="ma_include_cachet" checked>
-            Inclure le cachet numérique du Chef de Groupe sur ce document
-        </label>
-        <button class="btn btn-main" onclick="printAutoRun()">🖨️ Générer et Imprimer le document</button>
-    </div>
-</div>
-
-<div class="modal" id="modalCampPart">
-    <div class="modal-content">
-        <button class="close-modal" onclick="closeM('modalCampPart')">&times;</button>
-        <h2 style="color:var(--text-main); border-bottom:2px solid #eee; padding-bottom:10px; margin-bottom:15px;">👥 Gérer les inscrits au camp</h2>
-        <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">Cochez les jeunes qui ont confirmé leur présence et suivez les paiements.</p>
-        <div id="campPartList" style="display:flex; flex-direction:column; gap:10px;"></div>
-        <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="saveCampPart()">✅ Enregistrer les participations</button>
-    </div>
-</div>
+<!-- ZONE D'IMPRESSION PROPRE -->
+<div id="printZone"></div>
 
 <script src="app.js"></script>
 </body>

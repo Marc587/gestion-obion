@@ -3,6 +3,36 @@ const message = document.getElementById("message");
 let jeunes = JSON.parse(localStorage.getItem("obion_jeunes") || "[]");
 let jeuneEnModification = null;
 
+const progressionsParBranche = {
+  "Oisillons": [
+    "Découverte",
+    "Petit pas",
+    "Aile déployée"
+  ],
+  "Louveteau": [
+    "Patte tendre",
+    "1re étoile",
+    "2e étoile",
+    "3e étoile"
+  ],
+  "Troupier": [
+    "Aspirant / Pied tendre",
+    "2e classe",
+    "1re classe",
+    "Brevet / Badge"
+  ],
+  "Cheminot": [
+    "En route",
+    "Compagnon de route",
+    "Route / Engagement"
+  ],
+  "Routier": [
+    "Novice / Aspirant",
+    "Routier engagé",
+    "Service communautaire"
+  ]
+};
+
 function sauvegarder() {
   localStorage.setItem("obion_jeunes", JSON.stringify(jeunes));
 }
@@ -13,10 +43,15 @@ function afficherJeunes() {
     : null;
 
   const valeur = (champ) => jeune ? (jeune[champ] || "") : "";
+  const brancheActive = valeur("branche");
+  const etapesBranche = progressionsParBranche[brancheActive] || [
+    "En cours",
+    "Validée"
+  ];
 
   message.innerHTML = `
     <h2>Gestion des jeunes</h2>
-    <p>Fiches des jeunes et suivi de l'affiliation ASCCI.</p>
+    <p>Fiches des jeunes, progression scoute et suivi de l'affiliation ASCCI.</p>
 
     <form id="formJeune">
       <label>Nom et prénoms *</label>
@@ -28,13 +63,23 @@ function afficherJeunes() {
         value="${valeur("naissance")}">
 
       <label>Branche *</label>
-      <select name="branche" required>
+      <select name="branche" id="selectBrancheJeune" required>
         <option value="">Choisir une branche</option>
         <option ${valeur("branche") === "Oisillons" ? "selected" : ""}>Oisillons</option>
         <option ${valeur("branche") === "Louveteau" ? "selected" : ""}>Louveteau</option>
         <option ${valeur("branche") === "Troupier" ? "selected" : ""}>Troupier</option>
         <option ${valeur("branche") === "Cheminot" ? "selected" : ""}>Cheminot</option>
         <option ${valeur("branche") === "Routier" ? "selected" : ""}>Routier</option>
+      </select>
+
+      <label>Progression scoute</label>
+      <select name="progression" id="selectProgressionJeune">
+        <option value="">Non renseignée</option>
+        ${etapesBranche.map((etape) => `
+          <option value="${etape}" ${valeur("progression") === etape ? "selected" : ""}>
+            ${etape}
+          </option>
+        `).join("")}
       </select>
 
       <label>Contact du parent</label>
@@ -80,6 +125,22 @@ function afficherJeunes() {
     <div id="listeJeunes"></div>
   `;
 
+  document.getElementById("selectBrancheJeune").addEventListener("change", (event) => {
+    const nouvelleBranche = event.target.value;
+    const selectProg = document.getElementById("selectProgressionJeune");
+    const etapes = progressionsParBranche[nouvelleBranche] || ["En cours", "Validée"];
+    const valeurActuelle = selectProg.value;
+
+    selectProg.innerHTML = `
+      <option value="">Non renseignée</option>
+      ${etapes.map((etape) => `
+        <option value="${etape}" ${valeurActuelle === etape ? "selected" : ""}>
+          ${etape}
+        </option>
+      `).join("")}
+    `;
+  });
+
   if (jeune) {
     document.getElementById("annulerModification").addEventListener("click", () => {
       jeuneEnModification = null;
@@ -105,7 +166,9 @@ function afficherJeunes() {
 
     const details = document.createElement("p");
     details.textContent =
-      jeune.branche + " • " + (jeune.naissance || "Date non renseignée");
+      jeune.branche +
+      " • Progression : " + (jeune.progression || "Non renseignée") +
+      " • " + (jeune.naissance || "Date non renseignée");
 
     const parent = document.createElement("p");
     parent.textContent = "Parent : " + (jeune.parent || "Non renseigné");
@@ -154,6 +217,7 @@ function afficherJeunes() {
       nom: formulaire.get("nom").trim(),
       naissance: formulaire.get("naissance"),
       branche: formulaire.get("branche"),
+      progression: formulaire.get("progression"),
       parent: formulaire.get("parent").trim(),
       matricule: formulaire.get("matricule").trim(),
       annee: formulaire.get("annee"),
@@ -190,6 +254,8 @@ document.querySelectorAll("[data-name]").forEach((bouton) => {
     } else if (rubrique === "Activités") {
       activiteEnModification = null;
       afficherActivitesObion();
+    } else if (rubrique === "Finance") {
+      afficherFinanceObion();
     } else if (rubrique === "Accueil") {
       location.reload();
     } else {
@@ -1019,4 +1085,55 @@ function afficherActivitesObion() {
       afficherActivitesObion();
     });
   });
+}
+
+function afficherFinanceObion() {
+  const periodeActuelle = anneeCotisation + "_" + moisCotisation;
+  const totalCotisationsAttendues = jeunes.length * montantCotisationObion;
+  const totalCotisationsRecues = jeunes.reduce((somme, _, index) => {
+    return somme + Number(paiementsObion[periodeActuelle + "_" + index] || 0);
+  }, 0);
+
+  let totalEncaisseActivites = 0;
+  let totalDepensesActivites = 0;
+
+  activitesObion.forEach((activite) => {
+    const payeJeunes = (activite.participants || []).reduce(
+      (somme, p) => somme + Number(p.paye || 0),
+      0
+    );
+    const payeChefs = (activite.chefsParticipants || []).reduce(
+      (somme, c) => somme + Number(c.paye || 0),
+      0
+    );
+    const depenses = (activite.depenses || []).reduce(
+      (somme, d) => somme + Number(d.montant || 0),
+      0
+    );
+
+    totalEncaisseActivites += payeJeunes + payeChefs;
+    totalDepensesActivites += depenses;
+  });
+
+  const soldeActivites = totalEncaisseActivites - totalDepensesActivites;
+  const totalGlobalEncaisse = totalCotisationsRecues + totalEncaisseActivites;
+  const soldeGlobalEstime = totalGlobalEncaisse - totalDepensesActivites;
+
+  message.innerHTML = `
+    <h2>Finance — Groupe Obion</h2>
+    <p>Vue d'ensemble des cotisations mensuelles et des budgets d'activités.</p>
+
+    <h3>Cotisations (${nomsMoisObion[moisCotisation - 1]} ${anneeCotisation})</h3>
+    <p><strong>Attendu :</strong> ${totalCotisationsAttendues.toLocaleString("fr-FR")} F CFA</p>
+    <p><strong>Reçu :</strong> ${totalCotisationsRecues.toLocaleString("fr-FR")} F CFA</p>
+
+    <h3>Activités (${activitesObion.length})</h3>
+    <p><strong>Encaissé :</strong> ${totalEncaisseActivites.toLocaleString("fr-FR")} F CFA</p>
+    <p><strong>Dépenses :</strong> ${totalDepensesActivites.toLocaleString("fr-FR")} F CFA</p>
+    <p><strong>Solde activités :</strong> ${soldeActivites.toLocaleString("fr-FR")} F CFA</p>
+
+    <h3>Bilan global</h3>
+    <p><strong>Total encaissé (cotisations du mois + activités) :</strong> ${totalGlobalEncaisse.toLocaleString("fr-FR")} F CFA</p>
+    <p><strong>Solde global estimé (après dépenses activités) :</strong> ${soldeGlobalEstime.toLocaleString("fr-FR")} F CFA</p>
+  `;
 }

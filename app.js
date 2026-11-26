@@ -1,1139 +1,1258 @@
-const message = document.getElementById("message");
-
-let jeunes = JSON.parse(localStorage.getItem("obion_jeunes") || "[]");
-let jeuneEnModification = null;
-
-const progressionsParBranche = {
-  "Oisillons": [
-    "Découverte",
-    "Petit pas",
-    "Aile déployée"
-  ],
-  "Louveteau": [
-    "Patte tendre",
-    "1re étoile",
-    "2e étoile",
-    "3e étoile"
-  ],
-  "Troupier": [
-    "Aspirant / Pied tendre",
-    "2e classe",
-    "1re classe",
-    "Brevet / Badge"
-  ],
-  "Cheminot": [
-    "En route",
-    "Compagnon de route",
-    "Route / Engagement"
-  ],
-  "Routier": [
-    "Novice / Aspirant",
-    "Routier engagé",
-    "Service communautaire"
-  ]
+const firebaseConfig = {
+  apiKey: "AIzaSyAjOKy6EDW4ga3WMdanlXoFl2zmZWakdFM",
+  authDomain: "obion-9dd88.firebaseapp.com",
+  databaseURL: "https://obion-9dd88-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "obion-9dd88",
+  storageBucket: "obion-9dd88.firebasestorage.app",
+  messagingSenderId: "323290176171",
+  appId: "1:323290176171:web:0a8e937e0e3127ce9535ee",
+  measurementId: "G-TXEM0R3769"
 };
 
-function sauvegarder() {
-  localStorage.setItem("obion_jeunes", JSON.stringify(jeunes));
+firebase.initializeApp(firebaseConfig);
+const firestoreDb = firebase.firestore();
+const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
+
+const BACKUP_KEY = "obion_erp_backup_v1";
+const SESSION_KEY = "obion_erp_session_v1";
+
+const defaultData = {
+  scouts: [],
+  chefs: [],
+  camps: [],
+  presences: [],
+  finances: [],
+  materiel: [],
+  settings: {
+    cg_nom: "Chef de Groupe Obion",
+    cg_tel: "",
+    cot_j: 0,
+    cot_c: 0,
+    prog: {
+      Oisillon: "Découverte, Petit pas, Aile déployée",
+      Meute: "Patte tendre, 1re étoile, 2e étoile, 3e étoile",
+      Troupe: "Aspirant, 2e classe, 1re classe, Brevet",
+      Chemin: "En route, Compagnon de route, Engagement",
+      Route: "Novice, Routier engagé, Service communautaire"
+    }
+  }
+};
+
+let db = JSON.parse(localStorage.getItem(BACKUP_KEY) || "null") || structuredClone(defaultData);
+let currentUser = null;
+let currentPedaScoutId = null;
+let currentPresId = null;
+let currentCampId = null;
+let currentAutoTarget = null;
+let currentActiveTab = "effectifs";
+
+function fPrix(n) {
+  return Number(n || 0).toLocaleString("fr-FR") + " FCFA";
 }
 
-function afficherJeunes() {
-  const jeune = jeuneEnModification !== null
-    ? jeunes[jeuneEnModification]
-    : null;
+function getWaLink(tel, msg) {
+  const digits = String(tel || "").replace(/\D/g, "");
+  const fullNumber = digits.startsWith("225") ? digits : (digits ? "225" + digits : "");
+  return "https://wa.me/" + fullNumber + "?text=" + encodeURIComponent(msg);
+}
 
-  const valeur = (champ) => jeune ? (jeune[champ] || "") : "";
-  const brancheActive = valeur("branche");
-  const etapesBranche = progressionsParBranche[brancheActive] || [
-    "En cours",
-    "Validée"
+function closeM(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.style.display = "none";
+}
+
+function openM(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.style.display = "flex";
+}
+
+function normalizeDb() {
+  db = Object.assign(structuredClone(defaultData), db || {});
+  db.scouts = Array.isArray(db.scouts) ? db.scouts : [];
+  db.chefs = Array.isArray(db.chefs) ? db.chefs : [];
+  db.camps = Array.isArray(db.camps) ? db.camps : [];
+  db.presences = Array.isArray(db.presences) ? db.presences : [];
+  db.finances = Array.isArray(db.finances) ? db.finances : [];
+  db.materiel = Array.isArray(db.materiel) ? db.materiel : [];
+  db.settings = Object.assign(structuredClone(defaultData.settings), db.settings || {});
+  db.settings.prog = Object.assign(
+    structuredClone(defaultData.settings.prog),
+    db.settings.prog || {}
+  );
+}
+
+async function syncCloud(showAlertError = false) {
+  normalizeDb();
+  localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+  try {
+    await docRefObion.set(db, { merge: true });
+  } catch (err) {
+    console.warn("Sauvegarde locale conservée, synchro cloud en attente :", err);
+    if (showAlertError) {
+      alert("Enregistré sur cet appareil. Vérifie la connexion internet pour partager avec les autres chefs.");
+    }
+  }
+}
+
+function getUsersList() {
+  const list = [
+    {
+      id: "cg_default",
+      nom: "Chef de Groupe (Admin)",
+      titre: "Groupe et ressources adultes",
+      fonction: "Chef de Groupe",
+      pin: "1234",
+      isAdmin: true,
+      brancheAutorisee: "Toutes"
+    }
   ];
 
-  message.innerHTML = `
-    <h2>Gestion des jeunes</h2>
-    <p>Fiches des jeunes, progression scoute et suivi de l'affiliation ASCCI.</p>
+  db.chefs.forEach((chef) => {
+    const isAdmin =
+      chef.titre === "Coordinateur" ||
+      chef.titre === "Groupe et ressources adultes" ||
+      chef.fonction === "Chef de Groupe" ||
+      chef.fonction === "Membre du Comité";
 
-    <form id="formJeune">
-      <label>Nom et prénoms *</label>
-      <input name="nom" required placeholder="Nom et prénoms"
-        value="${valeur("nom")}">
-
-      <label>Date de naissance</label>
-      <input name="naissance" type="date"
-        value="${valeur("naissance")}">
-
-      <label>Branche *</label>
-      <select name="branche" id="selectBrancheJeune" required>
-        <option value="">Choisir une branche</option>
-        <option ${valeur("branche") === "Oisillons" ? "selected" : ""}>Oisillons</option>
-        <option ${valeur("branche") === "Louveteau" ? "selected" : ""}>Louveteau</option>
-        <option ${valeur("branche") === "Troupier" ? "selected" : ""}>Troupier</option>
-        <option ${valeur("branche") === "Cheminot" ? "selected" : ""}>Cheminot</option>
-        <option ${valeur("branche") === "Routier" ? "selected" : ""}>Routier</option>
-      </select>
-
-      <label>Progression scoute</label>
-      <select name="progression" id="selectProgressionJeune">
-        <option value="">Non renseignée</option>
-        ${etapesBranche.map((etape) => `
-          <option value="${etape}" ${valeur("progression") === etape ? "selected" : ""}>
-            ${etape}
-          </option>
-        `).join("")}
-      </select>
-
-      <label>Contact du parent</label>
-      <input name="parent" type="tel"
-        placeholder="Numéro de téléphone"
-        value="${valeur("parent")}">
-
-      <h3>Affiliation nationale ASCCI</h3>
-
-      <label>Matricule ASCCI</label>
-      <input name="matricule" placeholder="Matricule"
-        value="${valeur("matricule")}">
-
-      <label>Année d'affiliation</label>
-      <input name="annee" type="number" min="2000" max="2100"
-        placeholder="Ex : 2026"
-        value="${valeur("annee")}">
-
-      <label>Cotisation nationale</label>
-      <select name="cotisation">
-        <option value="Non payée"
-          ${valeur("cotisation") === "Non payée" || !valeur("cotisation") ? "selected" : ""}>
-          Non payée
-        </option>
-        <option value="Payée"
-          ${valeur("cotisation") === "Payée" ? "selected" : ""}>
-          Payée
-        </option>
-      </select>
-
-      <label>Date de paiement</label>
-      <input name="datePaiement" type="date"
-        value="${valeur("datePaiement")}">
-
-      <button type="submit">
-        ${jeune ? "Enregistrer les modifications" : "Enregistrer le jeune"}
-      </button>
-
-      ${jeune ? '<button type="button" id="annulerModification">Annuler</button>' : ""}
-    </form>
-
-    <h3>Jeunes enregistrés : ${jeunes.length}</h3>
-    <div id="listeJeunes"></div>
-  `;
-
-  document.getElementById("selectBrancheJeune").addEventListener("change", (event) => {
-    const nouvelleBranche = event.target.value;
-    const selectProg = document.getElementById("selectProgressionJeune");
-    const etapes = progressionsParBranche[nouvelleBranche] || ["En cours", "Validée"];
-    const valeurActuelle = selectProg.value;
-
-    selectProg.innerHTML = `
-      <option value="">Non renseignée</option>
-      ${etapes.map((etape) => `
-        <option value="${etape}" ${valeurActuelle === etape ? "selected" : ""}>
-          ${etape}
-        </option>
-      `).join("")}
-    `;
-  });
-
-  if (jeune) {
-    document.getElementById("annulerModification").addEventListener("click", () => {
-      jeuneEnModification = null;
-      afficherJeunes();
-    });
-  }
-
-  const liste = document.getElementById("listeJeunes");
-
-  if (jeunes.length === 0) {
-    liste.innerHTML = "<p>Aucun jeune enregistré pour le moment.</p>";
-  }
-
-  jeunes.forEach((jeune, index) => {
-    const fiche = document.createElement("article");
-    fiche.style.padding = "12px";
-    fiche.style.margin = "10px 0";
-    fiche.style.border = "1px solid #ddd";
-    fiche.style.borderRadius = "10px";
-
-    const nom = document.createElement("strong");
-    nom.textContent = jeune.nom;
-
-    const details = document.createElement("p");
-    details.textContent =
-      jeune.branche +
-      " • Progression : " + (jeune.progression || "Non renseignée") +
-      " • " + (jeune.naissance || "Date non renseignée");
-
-    const parent = document.createElement("p");
-    parent.textContent = "Parent : " + (jeune.parent || "Non renseigné");
-
-    const affiliation = document.createElement("p");
-    affiliation.textContent =
-      "Matricule ASCCI : " + (jeune.matricule || "À renseigner") +
-      " | Année : " + (jeune.annee || "Non renseignée");
-
-    const paiement = document.createElement("p");
-    paiement.textContent =
-      "Cotisation nationale : " + (jeune.cotisation || "Non payée") +
-      " | Date : " + (jeune.datePaiement || "Non renseignée");
-
-    const modifier = document.createElement("button");
-    modifier.textContent = "Modifier";
-    modifier.type = "button";
-    modifier.addEventListener("click", () => {
-      jeuneEnModification = index;
-      afficherJeunes();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
-
-    const supprimer = document.createElement("button");
-    supprimer.textContent = "Supprimer";
-    supprimer.type = "button";
-    supprimer.addEventListener("click", () => {
-      if (confirm("Supprimer la fiche de " + jeune.nom + " ?")) {
-        jeunes.splice(index, 1);
-        jeuneEnModification = null;
-        sauvegarder();
-        afficherJeunes();
-      }
-    });
-
-    fiche.append(nom, details, parent, affiliation, paiement, modifier, supprimer);
-    liste.appendChild(fiche);
-  });
-
-  document.getElementById("formJeune").addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    const formulaire = new FormData(event.target);
-
-    const nouvelleFiche = {
-      nom: formulaire.get("nom").trim(),
-      naissance: formulaire.get("naissance"),
-      branche: formulaire.get("branche"),
-      progression: formulaire.get("progression"),
-      parent: formulaire.get("parent").trim(),
-      matricule: formulaire.get("matricule").trim(),
-      annee: formulaire.get("annee"),
-      cotisation: formulaire.get("cotisation"),
-      datePaiement: formulaire.get("datePaiement")
+    const brancheMap = {
+      Micou: "Oisillon",
+      Akela: "Meute",
+      "Chef de Troupe": "Troupe",
+      Safouin: "Chemin"
     };
 
-    if (jeuneEnModification !== null) {
-      jeunes[jeuneEnModification] = nouvelleFiche;
-      jeuneEnModification = null;
-    } else {
-      jeunes.push(nouvelleFiche);
-    }
-
-    sauvegarder();
-    afficherJeunes();
+    list.push({
+      id: chef.id,
+      nom: chef.nom,
+      titre: chef.titre,
+      fonction: chef.fonction,
+      pin: String(chef.pin || "1234"),
+      isAdmin: isAdmin,
+      brancheAutorisee: isAdmin ? "Toutes" : (brancheMap[chef.titre] || "Toutes")
+    });
   });
+
+  return list;
 }
 
-document.querySelectorAll("[data-name]").forEach((bouton) => {
-  bouton.addEventListener("click", () => {
-    const rubrique = bouton.dataset.name;
-
-    if (rubrique === "Jeunes") {
-      jeuneEnModification = null;
-      afficherJeunes();
-    } else if (rubrique === "Présences") {
-      afficherPresences();
-    } else if (rubrique === "Cotisations") {
-      afficherCotisationsObion();
-    } else if (rubrique === "Chefs") {
-      chefEnModification = null;
-      afficherChefsObion();
-    } else if (rubrique === "Activités") {
-      activiteEnModification = null;
-      afficherActivitesObion();
-    } else if (rubrique === "Finance") {
-      afficherFinanceObion();
-    } else if (rubrique === "Accueil") {
-      location.reload();
-    } else {
-      message.innerHTML = `
-        <h2>${rubrique}</h2>
-        <p>Cette rubrique sera activée progressivement.</p>
-      `;
-    }
-
-    window.scrollTo({
-      top: document.body.scrollHeight,
-      behavior: "smooth"
-    });
-  });
-});
-
-let appelDate = new Date().toISOString().slice(0, 10);
-
-let presences = JSON.parse(
-  localStorage.getItem("obion_presences") || "{}"
-);
-
-function sauvegarderPresences() {
-  localStorage.setItem("obion_presences", JSON.stringify(presences));
+function populateLoginSelect() {
+  const select = document.getElementById("login_user");
+  if (!select) return;
+  const users = getUsersList();
+  select.innerHTML = users
+    .map((u) => `<option value="${u.id}">${u.nom} — ${u.titre}</option>`)
+    .join("");
 }
 
-function afficherPresences() {
-  if (jeunes.length === 0) {
-    message.innerHTML = `
-      <h2>Présences</h2>
-      <p>Enregistre d'abord les jeunes dans la rubrique Jeunes.</p>
-    `;
-    return;
-  }
+function login() {
+  const userId = document.getElementById("login_user").value;
+  const pin = document.getElementById("login_pin").value.trim();
+  const errorEl = document.getElementById("login_error");
+  const user = getUsersList().find((u) => u.id === userId);
 
-  const appel = presences[appelDate] || {};
-
-  message.innerHTML = `
-    <h2>Gestion des présences</h2>
-
-    <label>Date de la réunion</label>
-    <input id="dateAppel" type="date" value="${appelDate}">
-
-    <h3>Appel du ${appelDate}</h3>
-    <div id="listeAppel"></div>
-
-    <button id="enregistrerAppel">Enregistrer les présences</button>
-
-    <h3>Historique des appels</h3>
-    <div id="historiqueAppels"></div>
-  `;
-
-  document.getElementById("dateAppel").addEventListener("change", (event) => {
-    appelDate = event.target.value;
-    afficherPresences();
-  });
-
-  const liste = document.getElementById("listeAppel");
-
-  jeunes.forEach((jeune, index) => {
-    const ligne = document.createElement("div");
-    ligne.style.padding = "10px";
-    ligne.style.margin = "8px 0";
-    ligne.style.border = "1px solid #ddd";
-    ligne.style.borderRadius = "8px";
-
-    const nom = document.createElement("strong");
-    nom.textContent = jeune.nom + " — " + jeune.branche;
-
-    const choix = document.createElement("select");
-    choix.dataset.index = index;
-
-    ["Présent", "Absent", "Absent justifié"].forEach((statut) => {
-      const option = document.createElement("option");
-      option.value = statut;
-      option.textContent = statut;
-      option.selected = (appel[index] || "Présent") === statut;
-      choix.appendChild(option);
-    });
-
-    ligne.append(nom, document.createElement("br"), choix);
-    liste.appendChild(ligne);
-  });
-
-  document.getElementById("enregistrerAppel").addEventListener("click", () => {
-    const resultats = {};
-
-    document.querySelectorAll("#listeAppel select").forEach((choix) => {
-      resultats[choix.dataset.index] = choix.value;
-    });
-
-    presences[appelDate] = resultats;
-    sauvegarderPresences();
-
-    alert("Présences enregistrées pour le " + appelDate);
-    afficherPresences();
-  });
-
-  const historique = document.getElementById("historiqueAppels");
-
-  const dates = Object.keys(presences).sort().reverse();
-
-  if (dates.length === 0) {
-    historique.textContent = "Aucun appel enregistré.";
+  if (user && user.pin === pin) {
+    currentUser = user;
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    errorEl.style.display = "none";
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("appContainer").style.display = "block";
+    applyRolePermissions();
+    renderAll();
   } else {
-    dates.forEach((date) => {
-      const bouton = document.createElement("button");
-      bouton.textContent = "Consulter l'appel du " + date;
-      bouton.style.display = "block";
-      bouton.style.margin = "6px 0";
-
-      bouton.addEventListener("click", () => {
-        appelDate = date;
-        afficherPresences();
-      });
-
-      historique.appendChild(bouton);
-    });
+    errorEl.style.display = "block";
   }
 }
 
-let montantCotisationObion = Number(
-  localStorage.getItem("obion_montant_cotisation") || 0
-);
-
-let paiementsObion = JSON.parse(
-  localStorage.getItem("obion_paiements_cotisation") || "{}"
-);
-
-let moisCotisation = new Date().getMonth() + 1;
-let anneeCotisation = new Date().getFullYear();
-
-const nomsMoisObion = [
-  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
-];
-
-function sauvegarderCotisationsObion() {
-  localStorage.setItem(
-    "obion_montant_cotisation",
-    montantCotisationObion
-  );
-
-  localStorage.setItem(
-    "obion_paiements_cotisation",
-    JSON.stringify(paiementsObion)
-  );
+function logout() {
+  currentUser = null;
+  sessionStorage.removeItem(SESSION_KEY);
+  document.getElementById("login_pin").value = "";
+  document.getElementById("appContainer").style.display = "none";
+  document.getElementById("loginScreen").style.display = "flex";
 }
 
-function afficherCotisationsObion() {
-  const periode = anneeCotisation + "_" + moisCotisation;
+function applyRolePermissions() {
+  if (!currentUser) return;
+  document.getElementById("current_user_display").textContent =
+    `${currentUser.nom} (${currentUser.titre})`;
+  document.getElementById("p_resp").value = currentUser.nom;
 
-  message.innerHTML = `
-    <h2>Cotisations mensuelles</h2>
-
-    <label>Montant mensuel par jeune (F CFA)</label>
-    <input id="montantObion" type="number" min="0"
-      value="${montantCotisationObion}">
-
-    <button id="sauverMontantObion">Enregistrer le montant</button>
-
-    <label>Mois à suivre</label>
-    <select id="moisObion">
-      ${nomsMoisObion.map((mois, index) => `
-        <option value="${index + 1}"
-          ${moisCotisation === index + 1 ? "selected" : ""}>
-          ${mois}
-        </option>
-      `).join("")}
-    </select>
-
-    <label>Année</label>
-    <input id="anneeObion" type="number" min="2020" max="2100"
-      value="${anneeCotisation}">
-
-    <h3>${nomsMoisObion[moisCotisation - 1]} ${anneeCotisation}</h3>
-    <div id="listeCotisationsObion"></div>
-
-    <button id="sauverPaiementsObion">Enregistrer les paiements du mois</button>
-
-    <h3>Résumé du mois</h3>
-    <p id="resumeCotisationsObion"></p>
-  `;
-
-  document.getElementById("moisObion").addEventListener("change", (event) => {
-    moisCotisation = Number(event.target.value);
-    afficherCotisationsObion();
-  });
-
-  document.getElementById("anneeObion").addEventListener("change", (event) => {
-    const nouvelleAnnee = Number(event.target.value);
-
-    if (nouvelleAnnee >= 2020 && nouvelleAnnee <= 2100) {
-      anneeCotisation = nouvelleAnnee;
-      afficherCotisationsObion();
+  document.querySelectorAll(".admin-only").forEach((el) => {
+    if (currentUser.isAdmin) {
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
     }
   });
 
-  document.getElementById("sauverMontantObion").addEventListener("click", () => {
-    const montant = Number(document.getElementById("montantObion").value);
-
-    if (montant < 0 || !Number.isFinite(montant)) {
-      alert("Montant invalide.");
-      return;
-    }
-
-    montantCotisationObion = montant;
-    sauvegarderCotisationsObion();
-    afficherCotisationsObion();
-  });
-
-  const liste = document.getElementById("listeCotisationsObion");
-
-  let totalRecu = 0;
-  const totalDu = jeunes.length * montantCotisationObion;
-
-  jeunes.forEach((jeune, index) => {
-    const cle = periode + "_" + index;
-    const dejaPaye = Number(paiementsObion[cle] || 0);
-
-    totalRecu += dejaPaye;
-
-    const ligne = document.createElement("div");
-    ligne.style.padding = "10px";
-    ligne.style.margin = "8px 0";
-    ligne.style.border = "1px solid #ddd";
-    ligne.style.borderRadius = "8px";
-
-    const nom = document.createElement("strong");
-    nom.textContent = jeune.nom + " — " + jeune.branche;
-
-    const info = document.createElement("p");
-    info.textContent =
-      "Dû : " + montantCotisationObion +
-      " F CFA | Payé : " + dejaPaye +
-      " F CFA | Reste : " +
-      Math.max(0, montantCotisationObion - dejaPaye) + " F CFA";
-
-    const champ = document.createElement("input");
-    champ.type = "number";
-    champ.min = "0";
-    champ.placeholder = "Total payé pour ce mois";
-    champ.value = dejaPaye;
-    champ.dataset.index = index;
-
-    ligne.append(nom, info, champ);
-    liste.appendChild(ligne);
-  });
-
-  document.getElementById("resumeCotisationsObion").textContent =
-    "Total attendu : " + totalDu + " F CFA | " +
-    "Total reçu : " + totalRecu + " F CFA | " +
-    "Reste à recevoir : " + Math.max(0, totalDu - totalRecu) + " F CFA";
-
-  document.getElementById("sauverPaiementsObion").addEventListener("click", () => {
-    document.querySelectorAll("#listeCotisationsObion input").forEach((champ) => {
-      const index = champ.dataset.index;
-      const cle = periode + "_" + index;
-      const montant = Number(champ.value);
-
-      if (montant >= 0 && Number.isFinite(montant)) {
-        paiementsObion[cle] = montant;
+  if (!currentUser.isAdmin) {
+    ["filterScout", "filterPeda", "camp_branche", "p_branche"].forEach((id) => {
+      const sel = document.getElementById(id);
+      if (sel && currentUser.brancheAutorisee !== "Toutes") {
+        sel.value = currentUser.brancheAutorisee;
       }
     });
-
-    sauvegarderCotisationsObion();
-    afficherCotisationsObion();
-    alert("Paiements du mois enregistrés.");
-  });
-}
-
-let chefsObion = JSON.parse(
-  localStorage.getItem("obion_chefs") || "[]"
-);
-
-let chefEnModification = null;
-
-function sauvegarderChefsObion() {
-  localStorage.setItem("obion_chefs", JSON.stringify(chefsObion));
-}
-
-function afficherChefsObion() {
-  const chef = chefEnModification !== null
-    ? chefsObion[chefEnModification]
-    : null;
-
-  const valeur = (champ) => chef ? (chef[champ] || "") : "";
-
-  message.innerHTML = `
-    <h2>Gestion des chefs</h2>
-
-    <form id="formChef">
-      <label>Nom et prénoms *</label>
-      <input name="nom" required value="${valeur("nom")}">
-
-      <label>Fonction *</label>
-      <select name="fonction" required>
-        <option value="">Choisir une fonction</option>
-        <option ${valeur("fonction") === "Chef de Groupe" ? "selected" : ""}>Chef de Groupe</option>
-        <option ${valeur("fonction") === "Chef d’Unité" ? "selected" : ""}>Chef d’Unité</option>
-        <option ${valeur("fonction") === "Chef d’Unité Adjoint" ? "selected" : ""}>Chef d’Unité Adjoint</option>
-        <option ${valeur("fonction") === "Chef d’Unité Assistant" ? "selected" : ""}>Chef d’Unité Assistant</option>
-        <option ${valeur("fonction") === "Trésorier" ? "selected" : ""}>Trésorier</option>
-      </select>
-
-      <label>Branche ou unité</label>
-      <select name="unite">
-        <option value="">Choisir une unité</option>
-        <option ${valeur("unite") === "Oisillons" ? "selected" : ""}>Oisillons</option>
-        <option ${valeur("unite") === "Louveteau" ? "selected" : ""}>Louveteau</option>
-        <option ${valeur("unite") === "Troupier" ? "selected" : ""}>Troupier</option>
-        <option ${valeur("unite") === "Cheminot" ? "selected" : ""}>Cheminot</option>
-        <option ${valeur("unite") === "Routier" ? "selected" : ""}>Routier</option>
-      </select>
-
-      <label>Matricule ASCCI</label>
-      <input name="matricule" value="${valeur("matricule")}">
-
-      <label>Contact téléphonique</label>
-      <input name="contact" type="tel" value="${valeur("contact")}">
-
-      <button type="submit">
-        ${chef ? "Enregistrer les modifications" : "Ajouter le chef"}
-      </button>
-
-      ${chef ? '<button type="button" id="annulerChef">Annuler</button>' : ""}
-    </form>
-
-    <h3>Chefs enregistrés : ${chefsObion.length}</h3>
-    <div id="listeChefsObion"></div>
-  `;
-
-  if (chef) {
-    document.getElementById("annulerChef").addEventListener("click", () => {
-      chefEnModification = null;
-      afficherChefsObion();
-    });
   }
-
-  const liste = document.getElementById("listeChefsObion");
-
-  chefsObion.forEach((chef, index) => {
-    const fiche = document.createElement("article");
-    fiche.style.padding = "12px";
-    fiche.style.margin = "10px 0";
-    fiche.style.border = "1px solid #ddd";
-    fiche.style.borderRadius = "10px";
-
-    const nom = document.createElement("strong");
-    nom.textContent = chef.nom;
-
-    const details = document.createElement("p");
-    details.textContent = chef.fonction + " • " + (chef.unite || "Groupe");
-
-    const matricule = document.createElement("p");
-    matricule.textContent = "Matricule ASCCI : " + (chef.matricule || "À renseigner");
-
-    const contact = document.createElement("p");
-    contact.textContent = "Contact : " + (chef.contact || "Non renseigné");
-
-    const modifier = document.createElement("button");
-    modifier.textContent = "Modifier";
-    modifier.type = "button";
-    modifier.addEventListener("click", () => {
-      chefEnModification = index;
-      afficherChefsObion();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
-
-    const supprimer = document.createElement("button");
-    supprimer.textContent = "Supprimer";
-    supprimer.type = "button";
-    supprimer.addEventListener("click", () => {
-      if (confirm("Supprimer la fiche de " + chef.nom + " ?")) {
-        chefsObion.splice(index, 1);
-        chefEnModification = null;
-        sauvegarderChefsObion();
-        afficherChefsObion();
-      }
-    });
-
-    fiche.append(nom, details, matricule, contact, modifier, supprimer);
-    liste.appendChild(fiche);
-  });
-
-  document.getElementById("formChef").addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    const formulaire = new FormData(event.target);
-
-    const nouvelleFiche = {
-      nom: formulaire.get("nom").trim(),
-      fonction: formulaire.get("fonction"),
-      unite: formulaire.get("unite"),
-      matricule: formulaire.get("matricule").trim(),
-      contact: formulaire.get("contact").trim()
-    };
-
-    if (chefEnModification !== null) {
-      chefsObion[chefEnModification] = nouvelleFiche;
-      chefEnModification = null;
-    } else {
-      chefsObion.push(nouvelleFiche);
-    }
-
-    sauvegarderChefsObion();
-    afficherChefsObion();
-  });
 }
 
-let activitesObion = JSON.parse(
-  localStorage.getItem("obion_activites") || "[]"
-);
-
-let activiteEnModification = null;
-
-function sauvegarderActivitesObion() {
-  localStorage.setItem(
-    "obion_activites",
-    JSON.stringify(activitesObion)
-  );
-}
-
-function afficherActivitesObion() {
-  const branches = [
-    "Oisillons",
-    "Louveteau",
-    "Troupier",
-    "Cheminot",
-    "Routier"
-  ];
-
-  const echapper = (texte) =>
-    String(texte || "").replace(/[&<>"']/g, (caractere) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[caractere]);
-
-  message.innerHTML = `
-    <h2>Gestion des activités</h2>
-    <p>Créer une activité, suivre les participations et gérer le budget.</p>
-
-    <form id="formActivite">
-      <label>Nom de l’activité *</label>
-      <input name="titre" required placeholder="Ex. Sortie de groupe">
-
-      <label>Date de l’activité *</label>
-      <input name="date" type="date" required>
-
-      <label>Branches concernées *</label>
-      <div>
-        ${branches.map((branche) => `
-          <label style="display:block; margin:8px 0;">
-            <input type="checkbox" name="branches" value="${branche}">
-            ${branche}
-          </label>
-        `).join("")}
-      </div>
-
-      <label>Participation financière par jeune (F CFA)</label>
-      <input name="montantJeune" type="number" min="0" value="0" required>
-
-      <label>Participation financière par chef (F CFA)</label>
-      <input name="montantChef" type="number" min="0" value="0" required>
-
-      <label>Description</label>
-      <textarea name="description" placeholder="Lieu, programme, informations..."></textarea>
-
-      <button type="submit">Créer l’activité</button>
-    </form>
-
-    <hr>
-    <h3>Activités enregistrées</h3>
-    <div id="listeActivites"></div>
-  `;
-
-  const activiteModif =
-    activiteEnModification !== null ? activitesObion[activiteEnModification] : null;
-
-  if (activiteModif) {
-    const formModif = document.getElementById("formActivite");
-    formModif.querySelector('[name="titre"]').value = activiteModif.titre || "";
-    formModif.querySelector('[name="date"]').value = activiteModif.date || "";
-    formModif.querySelector('[name="montantJeune"]').value = activiteModif.montantJeune || 0;
-    formModif.querySelector('[name="montantChef"]').value = activiteModif.montantChef || 0;
-    formModif.querySelector('[name="description"]').value = activiteModif.description || "";
-
-    formModif.querySelectorAll('[name="branches"]').forEach((caseBranche) => {
-      caseBranche.checked = (activiteModif.branches || []).includes(caseBranche.value);
-    });
-
-    const boutonValider = formModif.querySelector('button[type="submit"]');
-    boutonValider.textContent = "Enregistrer les modifications";
-
-    const boutonAnnuler = document.createElement("button");
-    boutonAnnuler.type = "button";
-    boutonAnnuler.textContent = "Annuler la modification";
-    boutonAnnuler.style.marginLeft = "8px";
-    boutonAnnuler.addEventListener("click", () => {
-      activiteEnModification = null;
-      afficherActivitesObion();
-    });
-    boutonValider.insertAdjacentElement("afterend", boutonAnnuler);
-  }
-
-  document.getElementById("formActivite").addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    const formulaire = new FormData(event.target);
-    const branchesChoisies = formulaire.getAll("branches");
-
-    if (branchesChoisies.length === 0) {
-      alert("Choisis au moins une branche.");
-      return;
-    }
-
-    const participants = jeunes
-      .filter((jeune) => branchesChoisies.includes(jeune.branche))
-      .map((jeune) => ({
-        nom: jeune.nom,
-        branche: jeune.branche,
-        paye: 0
-      }));
-
-    const nouvelleActivite = {
-      id: Date.now(),
-      titre: formulaire.get("titre").trim(),
-      date: formulaire.get("date"),
-      montantJeune: Number(formulaire.get("montantJeune") || 0),
-      montantChef: Number(formulaire.get("montantChef") || 0),
-      branches: branchesChoisies,
-      description: formulaire.get("description").trim(),
-      participants: participants,
-      chefsParticipants: chefsObion.map((chef) => ({
-        nom: chef.nom,
-        fonction: chef.fonction,
-        unite: chef.unite || "Groupe",
-        paye: 0
-      })),
-      depenses: []
-    };
-
-    if (activiteEnModification !== null && activitesObion[activiteEnModification]) {
-      const ancienne = activitesObion[activiteEnModification];
-      const anciensJeunes = ancienne.participants || [];
-      const anciensChefs = ancienne.chefsParticipants || [];
-
-      nouvelleActivite.id = ancienne.id;
-      nouvelleActivite.depenses = Array.isArray(ancienne.depenses) ? ancienne.depenses : [];
-
-      nouvelleActivite.participants = nouvelleActivite.participants.map((p) => {
-        const trouve = anciensJeunes.find((aj) => aj.nom === p.nom && aj.branche === p.branche);
-        return trouve ? { ...p, paye: Number(trouve.paye || 0) } : p;
-      });
-
-      nouvelleActivite.chefsParticipants = nouvelleActivite.chefsParticipants.map((c) => {
-        const trouve = anciensChefs.find((ac) => ac.nom === c.nom);
-        return trouve ? { ...c, paye: Number(trouve.paye || 0) } : c;
-      });
-
-      activitesObion[activiteEnModification] = nouvelleActivite;
-      activiteEnModification = null;
-    } else {
-      activitesObion.push(nouvelleActivite);
-    }
-
-    sauvegarderActivitesObion();
-    afficherActivitesObion();
-  });
-
-  const liste = document.getElementById("listeActivites");
-
-  if (activitesObion.length === 0) {
-    liste.innerHTML = "<p>Aucune activité créée pour le moment.</p>";
+function nav(sectionName) {
+  if (!currentUser) return;
+  const adminTabs = ["maitrise", "finances", "parametres"];
+  if (adminTabs.includes(sectionName) && !currentUser.isAdmin) {
+    alert("Accès réservé à la direction du groupe.");
     return;
   }
 
-  liste.innerHTML = activitesObion.map((activite, indexActivite) => {
-    const listeJeunes = activite.participants || [];
-    const listeChefs = activite.chefsParticipants || [];
+  currentActiveTab = sectionName;
+  document.querySelectorAll(".section").forEach((sec) => sec.classList.add("hidden"));
+  const targetSec = document.getElementById("sec-" + sectionName);
+  if (targetSec) targetSec.classList.remove("hidden");
 
-    const montantDuJeunes = listeJeunes.length * Number(activite.montantJeune || 0);
-    const montantPayeJeunes = listeJeunes.reduce(
-      (total, participant) => total + Number(participant.paye || 0),
-      0
-    );
+  document.querySelectorAll(".tab-btn").forEach((btn) => btn.classList.remove("active"));
+  const activeBtn = document.getElementById("tab_" + sectionName);
+  if (activeBtn) activeBtn.classList.add("active");
 
-    const montantDuChefs = listeChefs.length * Number(activite.montantChef || 0);
-    const montantPayeChefs = listeChefs.reduce(
-      (total, chef) => total + Number(chef.paye || 0),
-      0
-    );
-
-    const montantDu = montantDuJeunes + montantDuChefs;
-    const montantPaye = montantPayeJeunes + montantPayeChefs;
-    const reste = Math.max(0, montantDu - montantPaye);
-
-    const listeDepenses = activite.depenses || [];
-    const totalDepenses = listeDepenses.reduce(
-      (total, depense) => total + Number(depense.montant || 0),
-      0
-    );
-
-    const soldeNet = montantPaye - totalDepenses;
-
-    return `
-      <div style="border:1px solid #ddd; padding:12px; margin:12px 0; border-radius:8px;">
-        <h3>${echapper(activite.titre)}</h3>
-        <p><strong>Date :</strong> ${echapper(activite.date)}</p>
-        <p><strong>Branches :</strong> ${activite.branches.map(echapper).join(", ")}</p>
-
-        <p><strong>Jeunes inscrits :</strong> ${listeJeunes.length} | <strong>Chefs inscrits :</strong> ${listeChefs.length}</p>
-        <p><strong>Total prévu :</strong> ${montantDu.toLocaleString("fr-FR")} F CFA</p>
-        <p><strong>Total payé :</strong> ${montantPaye.toLocaleString("fr-FR")} F CFA</p>
-        <p><strong>Reste à recevoir :</strong> ${reste.toLocaleString("fr-FR")} F CFA</p>
-        <p><strong>Total dépenses :</strong> ${totalDepenses.toLocaleString("fr-FR")} F CFA</p>
-        <p><strong>Solde net (Encaissé - Dépenses) :</strong> ${soldeNet.toLocaleString("fr-FR")} F CFA</p>
-
-        <details>
-          <summary>Jeunes participants et paiements</summary>
-          ${listeJeunes.length === 0 ? "<p>Aucun jeune inscrit.</p>" : listeJeunes.map((participant, indexParticipant) => {
-            const du = Number(activite.montantJeune || 0);
-            const paye = Number(participant.paye || 0);
-            const solde = Math.max(0, du - paye);
-
-            return `
-              <div style="border-top:1px solid #eee; padding:8px 0;">
-                <strong>${echapper(participant.nom)}</strong>
-                <p>${echapper(participant.branche)}</p>
-                <p>À payer : ${du.toLocaleString("fr-FR")} F CFA</p>
-                <label>Montant payé (F CFA)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="${du}"
-                  value="${paye}"
-                  data-activite="${indexActivite}"
-                  data-participant="${indexParticipant}"
-                  class="champPaiementActivite"
-                >
-                <p>Reste : ${solde.toLocaleString("fr-FR")} F CFA</p>
-              </div>
-            `;
-          }).join("")}
-        </details>
-
-        <details style="margin-top:8px;">
-          <summary>Chefs participants et paiements</summary>
-          ${listeChefs.length === 0 ? "<p>Aucun chef inscrit.</p>" : listeChefs.map((chef, indexChef) => {
-            const duChef = Number(activite.montantChef || 0);
-            const payeChef = Number(chef.paye || 0);
-            const soldeChef = Math.max(0, duChef - payeChef);
-
-            return `
-              <div style="border-top:1px solid #eee; padding:8px 0;">
-                <strong>${echapper(chef.nom)}</strong>
-                <p>${echapper(chef.fonction)} • ${echapper(chef.unite || "Groupe")}</p>
-                <p>À payer : ${duChef.toLocaleString("fr-FR")} F CFA</p>
-                <label>Montant payé par le chef (F CFA)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="${duChef}"
-                  value="${payeChef}"
-                  data-activite="${indexActivite}"
-                  data-chef="${indexChef}"
-                  class="champPaiementChefActivite"
-                >
-                <p>Reste : ${soldeChef.toLocaleString("fr-FR")} F CFA</p>
-              </div>
-            `;
-          }).join("")}
-        </details>
-
-        <details style="margin-top:8px;">
-          <summary>Dépenses de l’activité (${totalDepenses.toLocaleString("fr-FR")} F CFA)</summary>
-          <div style="padding:8px 0;">
-            <input
-              type="text"
-              placeholder="Libellé (ex. Transport, eau, goûter)"
-              id="libelleDepense_${indexActivite}"
-            >
-            <input
-              type="number"
-              min="0"
-              placeholder="Montant (F CFA)"
-              id="montantDepense_${indexActivite}"
-            >
-            <button
-              type="button"
-              class="btnAjouterDepense"
-              data-index="${indexActivite}"
-            >Ajouter la dépense</button>
-          </div>
-          ${listeDepenses.length === 0
-            ? "<p>Aucune dépense enregistrée.</p>"
-            : listeDepenses.map((depense, indexDepense) => `
-              <div style="border-top:1px solid #eee; padding:6px 0;">
-                <strong>${echapper(depense.libelle)}</strong> : ${Number(depense.montant || 0).toLocaleString("fr-FR")} F CFA
-                <button
-                  type="button"
-                  class="btnSupprimerDepense"
-                  data-activite="${indexActivite}"
-                  data-depense="${indexDepense}"
-                  style="margin-left:8px;"
-                >Supprimer</button>
-              </div>
-            `).join("")}
-        </details>
-
-        <p>${echapper(activite.description)}</p>
-        <button type="button" class="btnModifierActivite" data-index="${indexActivite}">Modifier l’activité</button>
-        <button type="button" class="btnSupprimerActivite" data-index="${indexActivite}">Supprimer l’activité</button>
-      </div>
-    `;
-  }).join("");
-
-  document.querySelectorAll(".btnModifierActivite").forEach((bouton) => {
-    bouton.addEventListener("click", () => {
-      activiteEnModification = Number(bouton.dataset.index);
-      afficherActivitesObion();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
-  });
-
-  document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
-    bouton.addEventListener("click", () => {
-      const indexActivite = Number(bouton.dataset.index);
-      const activiteCible = activitesObion[indexActivite];
-
-      if (!activiteCible) {
-        return;
-      }
-
-      if (confirm("Supprimer l’activité « " + activiteCible.titre + " » ?")) {
-        activitesObion.splice(indexActivite, 1);
-        sauvegarderActivitesObion();
-        afficherActivitesObion();
-      }
-    });
-  });
-
-  document.querySelectorAll(".btnAjouterDepense").forEach((bouton) => {
-    bouton.addEventListener("click", () => {
-      const indexActivite = Number(bouton.dataset.index);
-      const champLibelle = document.getElementById("libelleDepense_" + indexActivite);
-      const champMontant = document.getElementById("montantDepense_" + indexActivite);
-
-      const libelle = champLibelle ? champLibelle.value.trim() : "";
-      const montant = champMontant ? Number(champMontant.value) : 0;
-
-      if (!libelle) {
-        alert("Indique un libellé pour la dépense.");
-        return;
-      }
-
-      if (!Number.isFinite(montant) || montant <= 0) {
-        alert("Indique un montant supérieur à 0 F CFA.");
-        return;
-      }
-
-      if (!Array.isArray(activitesObion[indexActivite].depenses)) {
-        activitesObion[indexActivite].depenses = [];
-      }
-
-      activitesObion[indexActivite].depenses.push({
-        libelle: libelle,
-        montant: montant
-      });
-
-      sauvegarderActivitesObion();
-      afficherActivitesObion();
-    });
-  });
-
-  document.querySelectorAll(".btnSupprimerDepense").forEach((bouton) => {
-    bouton.addEventListener("click", () => {
-      const indexActivite = Number(bouton.dataset.activite);
-      const indexDepense = Number(bouton.dataset.depense);
-      const listeDepenses = activitesObion[indexActivite]?.depenses || [];
-
-      if (!listeDepenses[indexDepense]) {
-        return;
-      }
-
-      listeDepenses.splice(indexDepense, 1);
-      sauvegarderActivitesObion();
-      afficherActivitesObion();
-    });
-  });
-
-  document.querySelectorAll(".champPaiementActivite").forEach((champ) => {
-    champ.addEventListener("change", () => {
-      const indexActivite = Number(champ.dataset.activite);
-      const indexParticipant = Number(champ.dataset.participant);
-      const montantDu = Number(activitesObion[indexActivite].montantJeune || 0);
-
-      let montant = Number(champ.value || 0);
-      montant = Math.max(0, Math.min(montant, montantDu));
-
-      activitesObion[indexActivite].participants[indexParticipant].paye = montant;
-
-      sauvegarderActivitesObion();
-      afficherActivitesObion();
-    });
-  });
-
-  document.querySelectorAll(".champPaiementChefActivite").forEach((champ) => {
-    champ.addEventListener("change", () => {
-      const indexActivite = Number(champ.dataset.activite);
-      const indexChef = Number(champ.dataset.chef);
-      const montantDuChef = Number(activitesObion[indexActivite].montantChef || 0);
-
-      let montant = Number(champ.value || 0);
-      montant = Math.max(0, Math.min(montant, montantDuChef));
-
-      if (!Array.isArray(activitesObion[indexActivite].chefsParticipants)) {
-        activitesObion[indexActivite].chefsParticipants = [];
-      }
-
-      activitesObion[indexActivite].chefsParticipants[indexChef].paye = montant;
-
-      sauvegarderActivitesObion();
-      afficherActivitesObion();
-    });
-  });
+  renderAll();
 }
 
-function afficherFinanceObion() {
-  const periodeActuelle = anneeCotisation + "_" + moisCotisation;
-  const totalCotisationsAttendues = jeunes.length * montantCotisationObion;
-  const totalCotisationsRecues = jeunes.reduce((somme, _, index) => {
-    return somme + Number(paiementsObion[periodeActuelle + "_" + index] || 0);
-  }, 0);
+function autoBranch() {
+  const ddnVal = document.getElementById("s_ddn").value;
+  const hint = document.getElementById("s_age_hint");
+  const branchInput = document.getElementById("s_branche");
+  if (!ddnVal) {
+    hint.textContent = "";
+    branchInput.value = "";
+    return;
+  }
 
-  let totalEncaisseActivites = 0;
-  let totalDepensesActivites = 0;
+  const birth = new Date(ddnVal);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
 
-  activitesObion.forEach((activite) => {
-    const payeJeunes = (activite.participants || []).reduce(
-      (somme, p) => somme + Number(p.paye || 0),
-      0
-    );
-    const payeChefs = (activite.chefsParticipants || []).reduce(
-      (somme, c) => somme + Number(c.paye || 0),
-      0
-    );
-    const depenses = (activite.depenses || []).reduce(
-      (somme, d) => somme + Number(d.montant || 0),
-      0
-    );
+  let branche = "Oisillon";
+  if (age < 7) branche = "Oisillon";
+  else if (age <= 11) branche = "Meute";
+  else if (age <= 15) branche = "Troupe";
+  else if (age <= 18) branche = "Chemin";
+  else branche = "Route";
 
-    totalEncaisseActivites += payeJeunes + payeChefs;
-    totalDepensesActivites += depenses;
+  hint.textContent = `Âge : ${age} ans`;
+  branchInput.value = branche;
+}
+
+function resetScoutForm() {
+  document.getElementById("s_id").value = "";
+  document.getElementById("formTitleScout").textContent = "➕ Inscrire un jeune";
+  ["s_mat", "s_nom", "s_ddn", "s_branche", "s_sousunite", "s_role", "s_tel", "s_tel_perso", "s_parrain", "s_medical", "s_urgence"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  document.getElementById("s_sang").value = "Inconnu";
+  document.getElementById("s_age_hint").textContent = "";
+}
+
+async function saveScout() {
+  const id = document.getElementById("s_id").value;
+  const mat = document.getElementById("s_mat").value.trim();
+  const nom = document.getElementById("s_nom").value.trim();
+  const ddn = document.getElementById("s_ddn").value;
+  const branche = document.getElementById("s_branche").value.trim() || "Oisillon";
+  const tel = document.getElementById("s_tel").value.trim();
+
+  if (!mat || !nom || !ddn || !tel) {
+    alert("Merci de renseigner au moins le matricule, le nom complet, la date de naissance et le contact parent.");
+    return;
+  }
+
+  const existing = id ? db.scouts.find((s) => s.id === id) : null;
+  const record = {
+    id: id || "sc_" + Date.now(),
+    mat,
+    nom,
+    ddn,
+    branche,
+    sousunite: document.getElementById("s_sousunite").value.trim(),
+    role: document.getElementById("s_role").value.trim(),
+    tel,
+    tel_perso: document.getElementById("s_tel_perso").value.trim(),
+    parrain: document.getElementById("s_parrain").value.trim(),
+    sang: document.getElementById("s_sang").value,
+    medical: document.getElementById("s_medical").value.trim(),
+    urgence: document.getElementById("s_urgence").value.trim(),
+    cotisation: existing ? Boolean(existing.cotisation) : false,
+    totem: existing ? (existing.totem || "") : "",
+    etapesValidees: existing ? (existing.etapesValidees || []) : [],
+    obs: existing ? (existing.obs || "") : ""
+  };
+
+  if (existing) {
+    db.scouts = db.scouts.map((s) => (s.id === id ? record : s));
+  } else {
+    db.scouts.push(record);
+  }
+
+  resetScoutForm();
+  await syncCloud(true);
+  renderAll();
+}
+
+function editScout(id) {
+  const s = db.scouts.find((item) => item.id === id);
+  if (!s) return;
+  document.getElementById("s_id").value = s.id;
+  document.getElementById("formTitleScout").textContent = "✏️ Modifier le dossier de " + s.nom;
+  document.getElementById("s_mat").value = s.mat || "";
+  document.getElementById("s_nom").value = s.nom || "";
+  document.getElementById("s_ddn").value = s.ddn || "";
+  document.getElementById("s_branche").value = s.branche || "";
+  document.getElementById("s_sousunite").value = s.sousunite || "";
+  document.getElementById("s_role").value = s.role || "";
+  document.getElementById("s_tel").value = s.tel || "";
+  document.getElementById("s_tel_perso").value = s.tel_perso || "";
+  document.getElementById("s_parrain").value = s.parrain || "";
+  document.getElementById("s_sang").value = s.sang || "Inconnu";
+  document.getElementById("s_medical").value = s.medical || "";
+  document.getElementById("s_urgence").value = s.urgence || "";
+  autoBranch();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteScout(id) {
+  const s = db.scouts.find((item) => item.id === id);
+  if (!s) return;
+  if (!confirm("Supprimer le dossier de " + s.nom + " ?")) return;
+  db.scouts = db.scouts.filter((item) => item.id !== id);
+  await syncCloud(true);
+  renderAll();
+}
+
+function downloadCsvTemplate() {
+  const csv = "Matricule;Nom;DateNaissance;Branche;SousUnite;Role;ContactParent;ContactJeune;Parrain;Sang;Medical;Urgence\nOB-001;Kouassi Jean;2014-05-12;Troupe;Aigle;Chef de Patrouille;0700000000;;Koffi Paul;O+;Aucune;0500000000";
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "modele_effectifs_obion.csv";
+  link.click();
+}
+
+async function importScoutsCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length <= 1) return;
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(/[;,]/).map((c) => c.trim());
+    if (!cols[1]) continue;
+    db.scouts.push({
+      id: "sc_" + Date.now() + "_" + i,
+      mat: cols[0] || "MAT-" + i,
+      nom: cols[1],
+      ddn: cols[2] || "2015-01-01",
+      branche: cols[3] || "Meute",
+      sousunite: cols[4] || "",
+      role: cols[5] || "",
+      tel: cols[6] || "",
+      tel_perso: cols[7] || "",
+      parrain: cols[8] || "",
+      sang: cols[9] || "Inconnu",
+      medical: cols[10] || "",
+      urgence: cols[11] || "",
+      cotisation: false,
+      totem: "",
+      etapesValidees: [],
+      obs: ""
+    });
+  }
+  event.target.value = "";
+  await syncCloud(true);
+  renderAll();
+}
+
+function getEtapesBranche(branche) {
+  const raw = (db.settings.prog && db.settings.prog[branche]) || "";
+  const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return list.length > 0 ? list : ["Étape 1", "Étape 2", "Étape 3"];
+}
+
+function openPedaModal(id) {
+  const s = db.scouts.find((item) => item.id === id);
+  if (!s) return;
+  currentPedaScoutId = id;
+  document.getElementById("mp_nom").textContent = s.nom;
+  document.getElementById("mp_info").textContent = `${s.branche} • Matricule : ${s.mat} • ${s.sousunite || "Unité"}`;
+  document.getElementById("mp_totem").value = s.totem || "";
+  document.getElementById("mp_obs").value = s.obs || "";
+
+  const etapes = getEtapesBranche(s.branche);
+  const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
+  document.getElementById("mp_etapes").innerHTML = etapes
+    .map((etape, idx) => `
+      <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+        <input type="checkbox" class="peda-step-chk" value="${idx}" ${valid.includes(idx) ? "checked" : ""}>
+        ${etape}
+      </label>
+    `)
+    .join("");
+
+  openM("modalPeda");
+}
+
+async function savePeda() {
+  if (!currentPedaScoutId) return;
+  const checkedIndices = Array.from(document.querySelectorAll(".peda-step-chk:checked")).map((el) =>
+    Number(el.value)
+  );
+  db.scouts = db.scouts.map((s) => {
+    if (s.id !== currentPedaScoutId) return s;
+    return {
+      ...s,
+      totem: document.getElementById("mp_totem").value.trim(),
+      obs: document.getElementById("mp_obs").value.trim(),
+      etapesValidees: checkedIndices
+    };
+  });
+  closeM("modalPeda");
+  await syncCloud(true);
+  renderAll();
+}
+
+function generateCommandes() {
+  const rows = db.scouts.map((s) => {
+    const etapes = getEtapesBranche(s.branche);
+    const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
+    const nextIdx = etapes.findIndex((_, i) => !valid.includes(i));
+    const nextStep = nextIdx === -1 ? "Progression complète" : etapes[nextIdx];
+    return `<tr><td>${s.mat}</td><td>${s.nom}</td><td>${s.branche}</td><td>${nextStep}</td></tr>`;
   });
 
-  const soldeActivites = totalEncaisseActivites - totalDepensesActivites;
-  const totalGlobalEncaisse = totalCotisationsRecues + totalEncaisseActivites;
-  const soldeGlobalEstime = totalGlobalEncaisse - totalDepensesActivites;
-
-  message.innerHTML = `
-    <h2>Finance — Groupe Obion</h2>
-    <p>Vue d'ensemble des cotisations mensuelles et des budgets d'activités.</p>
-
-    <h3>Cotisations (${nomsMoisObion[moisCotisation - 1]} ${anneeCotisation})</h3>
-    <p><strong>Attendu :</strong> ${totalCotisationsAttendues.toLocaleString("fr-FR")} F CFA</p>
-    <p><strong>Reçu :</strong> ${totalCotisationsRecues.toLocaleString("fr-FR")} F CFA</p>
-
-    <h3>Activités (${activitesObion.length})</h3>
-    <p><strong>Encaissé :</strong> ${totalEncaisseActivites.toLocaleString("fr-FR")} F CFA</p>
-    <p><strong>Dépenses :</strong> ${totalDepensesActivites.toLocaleString("fr-FR")} F CFA</p>
-    <p><strong>Solde activités :</strong> ${soldeActivites.toLocaleString("fr-FR")} F CFA</p>
-
-    <h3>Bilan global</h3>
-    <p><strong>Total encaissé (cotisations du mois + activités) :</strong> ${totalGlobalEncaisse.toLocaleString("fr-FR")} F CFA</p>
-    <p><strong>Solde global estimé (après dépenses activités) :</strong> ${soldeGlobalEstime.toLocaleString("fr-FR")} F CFA</p>
+  document.getElementById("printArea").innerHTML = `
+    <h2>Commande d'Insignes — Groupe OBION</h2>
+    <p>St Bernard d'Adiopodoumé KM17</p>
+    <table>
+      <thead><tr><th>Matricule</th><th>Nom</th><th>Branche</th><th>Prochain insigne / étape</th></tr></thead>
+      <tbody>${rows.join("") || "<tr><td colspan='4'>Aucun jeune enregistré.</td></tr>"}</tbody>
+    </table>
   `;
+  window.print();
 }
+
+function openAutoConfig(targetType, targetId) {
+  currentAutoTarget = { targetType, targetId };
+  let label = "Groupe Obion";
+  if (targetType === "scout") {
+    const s = db.scouts.find((x) => x.id === targetId);
+    if (s) label = `${s.nom} (${s.branche})`;
+  } else if (targetType === "camp") {
+    const c = db.camps.find((x) => x.id === targetId);
+    if (c) {
+      label = c.titre;
+      document.getElementById("ma_custom_text").value =
+        `à participer au camp « ${c.titre} » à ${c.lieu} du ${c.debut} au ${c.fin}.`;
+    }
+  }
+  document.getElementById("ma_target_name").textContent = label;
+  openM("modalAutoConfig");
+}
+
+function printAutoRun() {
+  const customText = document.getElementById("ma_custom_text").value.trim();
+  const cgNom = db.settings.cg_nom || "Le Chef de Groupe";
+  const cgTel = db.settings.cg_tel || "";
+  document.getElementById("printArea").innerHTML = `
+    <h2>Autorisation Parentale — Groupe OBION</h2>
+    <p><strong>Lieu :</strong> Saint Bernard d'Adiopodoumé KM17</p>
+    <p style="margin:20px 0; line-height:1.6;">
+      Je soussigné(e), parent / tuteur légal, autorise le jeune concerné <strong>${customText}</strong>
+    </p>
+    <p><strong>Responsable du groupe :</strong> ${cgNom} ${cgTel ? "• Tél : " + cgTel : ""}</p>
+    <p style="margin-top:30px;">Signature du parent : ___________________________</p>
+  `;
+  closeM("modalAutoConfig");
+  window.print();
+}
+
+async function saveCamp() {
+  const titre = document.getElementById("camp_titre").value.trim();
+  const lieu = document.getElementById("camp_lieu").value.trim();
+  const debut = document.getElementById("camp_debut").value;
+  const fin = document.getElementById("camp_fin").value;
+  const branche = currentUser.isAdmin
+    ? document.getElementById("camp_branche").value
+    : currentUser.brancheAutorisee;
+  const frais = Number(document.getElementById("camp_frais").value || 0);
+
+  if (!titre || !lieu || !debut || !fin) {
+    alert("Merci de remplir le titre, le lieu et les dates du camp.");
+    return;
+  }
+
+  db.camps.push({
+    id: "camp_" + Date.now(),
+    titre,
+    lieu,
+    debut,
+    fin,
+    branche,
+    frais,
+    participants: []
+  });
+
+  document.getElementById("camp_titre").value = "";
+  document.getElementById("camp_lieu").value = "";
+  document.getElementById("camp_debut").value = "";
+  document.getElementById("camp_fin").value = "";
+  document.getElementById("camp_frais").value = "0";
+
+  await syncCloud(true);
+  renderAll();
+}
+
+function openCampPart(campId) {
+  const camp = db.camps.find((c) => c.id === campId);
+  if (!camp) return;
+  currentCampId = campId;
+  const eligibleScouts = db.scouts.filter(
+    (s) => camp.branche === "Toutes" || s.branche === camp.branche
+  );
+  const currentPart = Array.isArray(camp.participants) ? camp.participants : [];
+
+  document.getElementById("campPartList").innerHTML = eligibleScouts.length === 0
+    ? "<p>Aucun jeune dans cette branche.</p>"
+    : eligibleScouts
+        .map((s) => {
+          const found = currentPart.find((p) => p.scoutId === s.id);
+          const checked = Boolean(found);
+          const paye = found ? Number(found.paye || 0) : 0;
+          return `
+            <div style="border:1px solid #eee; padding:8px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" class="camp-part-chk" data-scout-id="${s.id}" ${checked ? "checked" : ""}>
+                <span><strong>${s.nom}</strong> <small>(${s.branche})</small></span>
+              </label>
+              <div>
+                <small>Payé (FCFA) :</small>
+                <input type="number" min="0" class="camp-part-paye" data-scout-id="${s.id}" value="${paye}" style="width:110px;">
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+  openM("modalCampPart");
+}
+
+async function saveCampPart() {
+  if (!currentCampId) return;
+  const checkedIds = Array.from(document.querySelectorAll(".camp-part-chk:checked")).map(
+    (el) => el.dataset.scoutId
+  );
+  const participants = checkedIds.map((scoutId) => {
+    const payeInput = document.querySelector(`.camp-part-paye[data-scout-id="${scoutId}"]`);
+    return {
+      scoutId,
+      paye: Number(payeInput ? payeInput.value : 0)
+    };
+  });
+
+  db.camps = db.camps.map((c) => (c.id === currentCampId ? { ...c, participants } : c));
+  closeM("modalCampPart");
+  await syncCloud(true);
+  renderAll();
+}
+
+async function deleteCamp(campId) {
+  if (!confirm("Supprimer ce camp / week-end ?")) return;
+  db.camps = db.camps.filter((c) => c.id !== campId);
+  await syncCloud(true);
+  renderAll();
+}
+
+function genAppel() {
+  const branche = currentUser && !currentUser.isAdmin
+    ? currentUser.brancheAutorisee
+    : document.getElementById("p_branche").value;
+  const box = document.getElementById("appelBox");
+  if (!branche) {
+    box.style.display = "none";
+    return;
+  }
+
+  const list = db.scouts.filter((s) => branche === "Toutes" || s.branche === branche);
+  box.style.display = "block";
+  box.innerHTML = list.length === 0
+    ? "<p>Aucun jeune trouvé pour cette branche.</p>"
+    : list
+        .map((s) => `
+          <label style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid #f0f0f0;">
+            <span><strong>${s.nom}</strong> <small>(${s.branche})</small></span>
+            <span>
+              <input type="checkbox" class="appel-chk" data-nom="${s.nom}" checked> Présent
+            </span>
+          </label>
+        `)
+        .join("");
+}
+
+async function savePresence() {
+  const date = document.getElementById("p_date").value;
+  const titre = document.getElementById("p_titre").value.trim();
+  const branche = currentUser.isAdmin
+    ? document.getElementById("p_branche").value
+    : currentUser.brancheAutorisee;
+  const resp = document.getElementById("p_resp").value || currentUser.nom;
+
+  if (!date || !titre || !branche) {
+    alert("Merci d'indiquer la date, le titre et la branche.");
+    return;
+  }
+
+  const checks = Array.from(document.querySelectorAll(".appel-chk"));
+  if (checks.length === 0) {
+    alert("Clique d'abord sur 'Lister les scouts pour l'appel'.");
+    return;
+  }
+
+  const presentsList = checks.filter((c) => c.checked).map((c) => c.dataset.nom);
+  const absentsList = checks.filter((c) => !c.checked).map((c) => c.dataset.nom);
+
+  db.presences.push({
+    id: "pr_" + Date.now(),
+    date,
+    titre,
+    branche,
+    resp,
+    presents: presentsList.length,
+    total: checks.length,
+    presentsList,
+    absentsList
+  });
+
+  document.getElementById("p_titre").value = "";
+  document.getElementById("appelBox").style.display = "none";
+
+  await syncCloud(true);
+  renderAll();
+}
+
+function openPresDetails(id) {
+  const p = db.presences.find((item) => item.id === id);
+  if (!p) return;
+  currentPresId = id;
+  document.getElementById("mpres_titre").textContent = `${p.titre} (${p.branche})`;
+  document.getElementById("mpres_date").textContent = "Date : " + new Date(p.date).toLocaleDateString("fr-FR");
+  document.getElementById("mpres_resp").textContent = "Responsable : " + p.resp;
+
+  const pList = p.presentsList || [];
+  const aList = p.absentsList || [];
+  document.getElementById("count_p").textContent = pList.length;
+  document.getElementById("count_a").textContent = aList.length;
+  document.getElementById("list_p").innerHTML = pList.map((n) => `<li>• ${n}</li>`).join("") || "<li>Aucun</li>";
+  document.getElementById("list_a").innerHTML = aList.map((n) => `<li>• ${n}</li>`).join("") || "<li>Aucun</li>";
+
+  openM("modalPresDetails");
+}
+
+function copyWhatsApp() {
+  const p = db.presences.find((item) => item.id === currentPresId);
+  if (!p) return;
+  const text = `📋 *Appel - Groupe OBION*\nActivité : ${p.titre} (${p.branche})\nDate : ${p.date}\n✅ Présents : ${p.presents}/${p.total}\n❌ Absents : ${(p.absentsList || []).join(", ") || "Aucun"}`;
+  navigator.clipboard?.writeText(text);
+  alert("Rapport copié pour WhatsApp !");
+}
+
+function printPresence() {
+  const p = db.presences.find((item) => item.id === currentPresId);
+  if (!p) return;
+  document.getElementById("printArea").innerHTML = `
+    <h2>Fiche d'Appel — Groupe OBION</h2>
+    <p><strong>Activité :</strong> ${p.titre} | <strong>Branche :</strong> ${p.branche} | <strong>Date :</strong> ${p.date}</p>
+    <p><strong>Responsable :</strong> ${p.resp} | <strong>Présents :</strong> ${p.presents} / ${p.total}</p>
+    <p><strong>Absents :</strong> ${(p.absentsList || []).join(", ") || "Aucun"}</p>
+  `;
+  window.print();
+}
+
+async function delPres(id) {
+  if (!confirm("Supprimer cet appel ?")) return;
+  db.presences = db.presences.filter((p) => p.id !== id);
+  await syncCloud(true);
+  renderAll();
+}
+
+async function saveMateriel() {
+  const nom = document.getElementById("m_nom").value.trim();
+  const cat = document.getElementById("m_cat").value;
+  const qte = Number(document.getElementById("m_qte").value || 1);
+  const etat = document.getElementById("m_etat").value;
+  const resp = document.getElementById("m_resp").value.trim();
+
+  if (!nom || !resp) {
+    alert("Merci de renseigner le nom de l'article et le lieu / responsable.");
+    return;
+  }
+
+  db.materiel.push({
+    id: "mat_" + Date.now(),
+    nom,
+    cat,
+    qte,
+    etat,
+    resp
+  });
+
+  document.getElementById("m_nom").value = "";
+  document.getElementById("m_qte").value = "1";
+  document.getElementById("m_resp").value = "";
+
+  await syncCloud(true);
+  renderAll();
+}
+
+async function delMat(id) {
+  if (!confirm("Retirer cet article de l'inventaire ?")) return;
+  db.materiel = db.materiel.filter((m) => m.id !== id);
+  await syncCloud(true);
+  renderAll();
+}
+
+function resetChefForm() {
+  document.getElementById("c_id").value = "";
+  ["c_nom", "c_tel", "c_pin"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+}
+
+async function saveChef() {
+  const id = document.getElementById("c_id").value;
+  const nom = document.getElementById("c_nom").value.trim();
+  const titre = document.getElementById("c_titre").value;
+  const fonction = document.getElementById("c_fonction").value;
+  const tel = document.getElementById("c_tel").value.trim();
+  const pin = document.getElementById("c_pin").value.trim();
+
+  if (!nom || !tel || pin.length !== 4) {
+    alert("Merci de saisir le nom, le téléphone et un code PIN à 4 chiffres.");
+    return;
+  }
+
+  const existing = id ? db.chefs.find((c) => c.id === id) : null;
+  const chefData = {
+    id: id || "ch_" + Date.now(),
+    nom,
+    titre,
+    fonction,
+    tel,
+    pin,
+    cotisation: existing ? Boolean(existing.cotisation) : false
+  };
+
+  if (existing) {
+    db.chefs = db.chefs.map((c) => (c.id === id ? chefData : c));
+  } else {
+    db.chefs.push(chefData);
+  }
+
+  resetChefForm();
+  populateLoginSelect();
+  await syncCloud(true);
+  renderAll();
+}
+
+function editChef(id) {
+  const c = db.chefs.find((item) => item.id === id);
+  if (!c) return;
+  document.getElementById("c_id").value = c.id;
+  document.getElementById("c_nom").value = c.nom || "";
+  document.getElementById("c_titre").value = c.titre || "Micou";
+  document.getElementById("c_fonction").value = c.fonction || "Chef d'Unité (CU)";
+  document.getElementById("c_tel").value = c.tel || "";
+  document.getElementById("c_pin").value = c.pin || "";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteChef(id) {
+  if (!confirm("Retirer ce responsable de la maîtrise ?")) return;
+  db.chefs = db.chefs.filter((c) => c.id !== id);
+  populateLoginSelect();
+  await syncCloud(true);
+  renderAll();
+}
+
+function checkCotisation() {
+  const cat = document.getElementById("f_cat").value;
+  const linkBox = document.getElementById("f_scout_link");
+  const select = document.getElementById("f_scout_select");
+  if (cat === "Cotisation Annuelle") {
+    linkBox.style.display = "block";
+    const options = ['<option value="">Sélectionner le membre qui vient de payer...</option>'];
+    db.scouts.forEach((s) => {
+      options.push(`<option value="scout:${s.id}">Jeune : ${s.nom} (${s.branche})</option>`);
+    });
+    db.chefs.forEach((c) => {
+      options.push(`<option value="chef:${c.id}">Chef : ${c.nom} (${c.titre})</option>`);
+    });
+    select.innerHTML = options.join("");
+  } else {
+    linkBox.style.display = "none";
+  }
+}
+
+async function saveFinance() {
+  const type = document.getElementById("f_type").value;
+  const cat = document.getElementById("f_cat").value;
+  const montant = Number(document.getElementById("f_montant").value || 0);
+  const date = document.getElementById("f_date").value || new Date().toISOString().slice(0, 10);
+  const motif = document.getElementById("f_motif").value.trim();
+  const linked = document.getElementById("f_scout_select").value;
+
+  if (!montant || montant <= 0 || !motif) {
+    alert("Merci d'indiquer un montant supérieur à 0 et un motif.");
+    return;
+  }
+
+  db.finances.push({
+    id: "fin_" + Date.now(),
+    type,
+    cat,
+    montant,
+    date,
+    motif
+  });
+
+  if (type === "in" && cat === "Cotisation Annuelle" && linked) {
+    const [kind, targetId] = linked.split(":");
+    if (kind === "scout") {
+      db.scouts = db.scouts.map((s) => (s.id === targetId ? { ...s, cotisation: true } : s));
+    } else if (kind === "chef") {
+      db.chefs = db.chefs.map((c) => (c.id === targetId ? { ...c, cotisation: true } : c));
+    }
+  }
+
+  document.getElementById("f_montant").value = "";
+  document.getElementById("f_motif").value = "";
+
+  await syncCloud(true);
+  renderAll();
+}
+
+async function delFin(id) {
+  if (!confirm("Supprimer cette opération financière ?")) return;
+  db.finances = db.finances.filter((f) => f.id !== id);
+  await syncCloud(true);
+  renderAll();
+}
+
+function printCaisse() {
+  const rows = [...db.finances]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .map((f) => {
+      const sign = f.type === "in" ? "+" : "-";
+      return `<tr><td>${f.date}</td><td>${f.type.toUpperCase()}</td><td>${f.cat}</td><td>${f.motif}</td><td>${sign} ${fPrix(f.montant)}</td></tr>`;
+    });
+
+  document.getElementById("printArea").innerHTML = `
+    <h2>Livre de Caisse — Groupe OBION</h2>
+    <p>Entrées : ${document.getElementById("f_tot_in").textContent} | Sorties : ${document.getElementById("f_tot_out").textContent} | Solde : ${document.getElementById("f_solde").textContent}</p>
+    <table>
+      <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead>
+      <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération.</td></tr>"}</tbody>
+    </table>
+  `;
+  window.print();
+}
+
+async function saveSettings() {
+  db.settings.cg_nom = document.getElementById("cfg_cg_nom").value.trim() || "Chef de Groupe Obion";
+  db.settings.cg_tel = document.getElementById("cfg_cg_tel").value.trim();
+  db.settings.cot_j = Number(document.getElementById("cfg_cot_j").value || 0);
+  db.settings.cot_c = Number(document.getElementById("cfg_cot_c").value || 0);
+  await syncCloud(true);
+  renderAll();
+  alert("Paramètres du groupe enregistrés.");
+}
+
+async function saveProgSettings() {
+  db.settings.prog = {
+    Oisillon: document.getElementById("cfg_prog_oisillon").value.trim(),
+    Meute: document.getElementById("cfg_prog_meute").value.trim(),
+    Troupe: document.getElementById("cfg_prog_troupe").value.trim(),
+    Chemin: document.getElementById("cfg_prog_chemin").value.trim(),
+    Route: document.getElementById("cfg_prog_route").value.trim()
+  };
+  await syncCloud(true);
+  renderAll();
+  alert("Progressions ASCCI mises à jour.");
+}
+
+async function cloturerAnnee() {
+  if (!confirm("Remettre toutes les cotisations annuelles (jeunes et chefs) à Impayé pour la nouvelle année ?")) return;
+  db.scouts = db.scouts.map((s) => ({ ...s, cotisation: false }));
+  db.chefs = db.chefs.map((c) => ({ ...c, cotisation: false }));
+  await syncCloud(true);
+  renderAll();
+  alert("Nouvelle année préparée : cotisations remises à Impayé.");
+}
+
+function renderSettingsInputs() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  document.getElementById("cfg_cg_nom").value = db.settings.cg_nom || "";
+  document.getElementById("cfg_cg_tel").value = db.settings.cg_tel || "";
+  document.getElementById("cfg_cot_j").value = db.settings.cot_j || 0;
+  document.getElementById("cfg_cot_c").value = db.settings.cot_c || 0;
+  document.getElementById("cfg_prog_oisillon").value = db.settings.prog.Oisillon || "";
+  document.getElementById("cfg_prog_meute").value = db.settings.prog.Meute || "";
+  document.getElementById("cfg_prog_troupe").value = db.settings.prog.Troupe || "";
+  document.getElementById("cfg_prog_chemin").value = db.settings.prog.Chemin || "";
+  document.getElementById("cfg_prog_route").value = db.settings.prog.Route || "";
+}
+
+function renderScouts() {
+  const listEl = document.getElementById("scoutList");
+  if (!listEl || !currentUser) return;
+  const q = (document.getElementById("searchScout")?.value || "").toLowerCase().trim();
+  const filterBranche = currentUser.isAdmin
+    ? (document.getElementById("filterScout")?.value || "Tous")
+    : currentUser.brancheAutorisee;
+
+  const filtered = db.scouts.filter((s) => {
+    const matchBranch = filterBranche === "Tous" || s.branche === filterBranche;
+    const matchName = !q || String(s.nom || "").toLowerCase().includes(q);
+    return matchBranch && matchName;
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = "<div class='card'><p>Aucun dossier jeune trouvé.</p></div>";
+    return;
+  }
+
+  const branchClassMap = {
+    Oisillon: "b-Oisillon",
+    Meute: "b-Meute",
+    Troupe: "b-Troupe",
+    Chemin: "b-Chemin",
+    Route: "b-Route"
+  };
+
+  listEl.innerHTML = filtered
+    .map((s) => {
+      const waBtn = !s.cotisation && s.tel
+        ? `<a href="${getWaLink(s.tel, `Bonjour parent de ${s.nom}, rappel de cotisation annuelle (${fPrix(db.settings.cot_j)}) pour le Groupe Obion.`)}" target="_blank" class="wa-btn">📱 Relancer</a>`
+        : "";
+      const cotiStatus = s.cotisation
+        ? `<span class="status-dot status-green"></span> Cotisation : À jour`
+        : `<span class="status-dot status-red"></span> Cotisation : Impayé ${waBtn}`;
+
+      return `
+        <div class="item-card ${branchClassMap[s.branche] || ""}">
+          <span class="b-badge">${s.branche}</span>
+          <h3>${s.nom}</h3>
+          <p><strong>Matricule :</strong> ${s.mat} | <strong>Unité :</strong> ${s.sousunite || "Non précisée"}</p>
+          <p><strong>Parent :</strong> ${s.tel || "-"} | <strong>Sang :</strong> ${s.sang || "Inconnu"}</p>
+          <p style="margin-top:6px;">${cotiStatus}</p>
+          <div class="item-actions no-print">
+            <button class="btn btn-edit" onclick="editScout('${s.id}')">✏️ Modifier</button>
+            <button class="btn btn-secondary" onclick="openAutoConfig('scout', '${s.id}')">📄 Autorisation</button>
+            <button class="btn btn-danger" onclick="deleteScout('${s.id}')">❌ Supprimer</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderPedagogie() {
+  const tbody = document.getElementById("pedaList");
+  if (!tbody || !currentUser) return;
+  const filterBranche = currentUser.isAdmin
+    ? (document.getElementById("filterPeda")?.value || "Toutes")
+    : currentUser.brancheAutorisee;
+
+  const filtered = db.scouts.filter(
+    (s) => filterBranche === "Toutes" || filterBranche === "Vue Globale" || s.branche === filterBranche
+  );
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = "<tr><td colspan='6'>Aucun jeune à afficher.</td></tr>";
+    return;
+  }
+
+  tbody.innerHTML = filtered
+    .map((s) => {
+      const etapes = getEtapesBranche(s.branche);
+      const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
+      const pct = Math.round((valid.length / Math.max(1, etapes.length)) * 100);
+      const nextIdx = etapes.findIndex((_, i) => !valid.includes(i));
+      const objectif = nextIdx === -1 ? "Validé" : etapes[nextIdx];
+
+      return `
+        <tr>
+          <td>${s.mat}</td>
+          <td><strong>${s.nom}</strong><br><small>${s.branche}</small></td>
+          <td>${s.totem || "-"}</td>
+          <td style="min-width:150px;">
+            <small>${pct}% (${valid.length}/${etapes.length})</small>
+            <div class="progress-bg"><div class="progress-bar" style="width:${pct}%;"></div></div>
+          </td>
+          <td>${objectif}</td>
+          <td><button class="btn btn-success" onclick="openPedaModal('${s.id}')">🎓 Suivre</button></td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function renderCamps() {
+  const listEl = document.getElementById("campList");
+  if (!listEl || !currentUser) return;
+  const visibleCamps = db.camps.filter(
+    (c) => currentUser.isAdmin || c.branche === "Toutes" || c.branche === currentUser.brancheAutorisee
+  );
+
+  if (visibleCamps.length === 0) {
+    listEl.innerHTML = "<div class='card'><p>Aucun camp ou week-end planifié.</p></div>";
+    return;
+  }
+
+  listEl.innerHTML = visibleCamps
+    .map((c) => {
+      const partList = Array.isArray(c.participants) ? c.participants : [];
+      const totalPaye = partList.reduce((acc, p) => acc + Number(p.paye || 0), 0);
+      return `
+        <div class="item-card" style="border-left-color:#d35400;">
+          <span class="b-badge" style="background:#d35400;">${c.branche}</span>
+          <h3>${c.titre}</h3>
+          <p><strong>Lieu :</strong> ${c.lieu}</p>
+          <p><strong>Dates :</strong> ${c.debut} au ${c.fin}</p>
+          <p><strong>Frais :</strong> ${fPrix(c.frais)} | <strong>Inscrits :</strong> ${partList.length}</p>
+          <p><strong>Encaissé :</strong> ${fPrix(totalPaye)}</p>
+          <div class="item-actions no-print">
+            <button class="btn btn-success" onclick="openCampPart('${c.id}')">👥 Inscrits & Paiements</button>
+            <button class="btn btn-secondary" onclick="openAutoConfig('camp', '${c.id}')">📄 Autorisation</button>
+            <button class="btn btn-danger" onclick="deleteCamp('${c.id}')">❌ Supprimer</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderChefs() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  const cList = document.getElementById("chefList");
+  if (!cList) return;
+
+  if (db.chefs.length === 0) {
+    cList.innerHTML = "<div class='card'><p>Aucun chef enregistré dans la maîtrise.</p></div>";
+    return;
+  }
+
+  cList.innerHTML = db.chefs
+    .map((c) => {
+      let waBtn = "";
+      if (!c.cotisation && c.tel) {
+        const msg = `Bonjour ${c.nom}, rappel de la maîtrise du Groupe Obion : ta cotisation annuelle (${fPrix(db.settings.cot_c)}) est en attente.`;
+        waBtn = `<a href="${getWaLink(c.tel, msg)}" target="_blank" class="wa-btn">📱 Relancer</a>`;
+      }
+      const cotiC = c.cotisation
+        ? `<span class="status-dot status-green"></span> Cotisation : À jour`
+        : `<span class="status-dot status-red"></span> Cotisation : Impayé ${waBtn}`;
+
+      return `
+        <div class="item-card b-CG">
+          <span class="b-badge" style="background:var(--c-cg);">${c.fonction}</span>
+          <h3>${c.nom}</h3>
+          <p><strong>Titre :</strong> ${c.titre}</p>
+          <p><strong>Téléphone :</strong> <a href="tel:${c.tel}">${c.tel}</a></p>
+          <p style="margin-top:8px;">${cotiC}</p>
+          <p style="color:#e74c3c; margin-top:4px;"><strong>PIN :</strong> ${c.pin}</p>
+          <div class="item-actions no-print">
+            <button class="btn btn-edit" onclick="editChef('${c.id}')">✏️ Éditer</button>
+            <button class="btn btn-danger" onclick="deleteChef('${c.id}')">❌ Retirer</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderPresences() {
+  const prList = document.getElementById("presenceList");
+  if (!prList || !currentUser) return;
+  const items = [...db.presences]
+    .reverse()
+    .filter((p) => currentUser.isAdmin || p.branche === "Toutes" || p.branche === currentUser.brancheAutorisee);
+
+  if (items.length === 0) {
+    prList.innerHTML = "<div class='card'><p>Aucun appel enregistré.</p></div>";
+    return;
+  }
+
+  prList.innerHTML = items
+    .map(
+      (p) => `
+        <div class="item-card" style="border-left-color:#3498db;">
+          <span class="b-badge" style="background:#3498db;">${p.branche}</span>
+          <h3 style="color:#3498db;">${p.titre}</h3>
+          <p>📅 ${new Date(p.date).toLocaleDateString("fr-FR")} | 👨‍✈️ ${p.resp}</p>
+          <p>✅ Présents : ${p.presents} / ${p.total}</p>
+          <div class="item-actions no-print">
+            <button class="btn btn-secondary" onclick="openPresDetails('${p.id}')">📄 Détails & Rapports</button>
+            <button class="btn btn-danger" onclick="delPres('${p.id}')">❌</button>
+          </div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderFinances() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  const fList = document.getElementById("financeList");
+  if (!fList) return;
+
+  let tIn = 0;
+  let tOut = 0;
+  const sorted = [...db.finances].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  fList.innerHTML = sorted
+    .map((f) => {
+      const amt = Number(f.montant || 0);
+      if (f.type === "in") tIn += amt;
+      else tOut += amt;
+      const cColor = f.type === "in" ? "td-entree" : "td-sortie";
+      const sign = f.type === "in" ? "+" : "-";
+      return `
+        <tr>
+          <td>${new Date(f.date).toLocaleDateString("fr-FR")}</td>
+          <td class="${cColor}">${f.type === "in" ? "Entrée" : "Sortie"}</td>
+          <td>${f.cat}</td>
+          <td>${f.motif}</td>
+          <td class="${cColor}">${sign} ${fPrix(amt)}</td>
+          <td class="no-print"><button class="btn btn-danger" style="padding:4px 8px;" onclick="delFin('${f.id}')">❌</button></td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  document.getElementById("f_tot_in").textContent = fPrix(tIn);
+  document.getElementById("f_tot_out").textContent = fPrix(tOut);
+  document.getElementById("f_solde").textContent = fPrix(tIn - tOut);
+}
+
+function renderMateriel() {
+  const mList = document.getElementById("materielList");
+  if (!mList) return;
+  if (db.materiel.length === 0) {
+    mList.innerHTML = "<div class='card'><p>Aucun matériel enregistré.</p></div>";
+    return;
+  }
+  mList.innerHTML = db.materiel
+    .map(
+      (m) => `
+        <div class="item-card" style="border-left-color:#8e44ad;">
+          <span class="b-badge" style="background:#8e44ad;">${m.cat}</span>
+          <h3 style="color:#8e44ad;">${m.nom}</h3>
+          <p>📦 Qté : ${m.qte} | 🛠️ État : ${m.etat}</p>
+          <p>👤 Lieu / Resp : ${m.resp}</p>
+          <div class="item-actions no-print">
+            <button class="btn btn-danger" onclick="delMat('${m.id}')">❌ Retirer</button>
+          </div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderParrains() {
+  const paList = document.getElementById("parrainList");
+  if (!paList || !currentUser) return;
+  const mapP = {};
+  db.scouts.forEach((s) => {
+    if (s.parrain && (currentUser.isAdmin || s.branche === currentUser.brancheAutorisee)) {
+      if (!mapP[s.parrain]) mapP[s.parrain] = [];
+      mapP[s.parrain].push(s);
+    }
+  });
+
+  const keys = Object.keys(mapP).sort();
+  if (keys.length === 0) {
+    paList.innerHTML = "<div class='card'><p>Aucun parrain ou marraine renseigné.</p></div>";
+    return;
+  }
+
+  paList.innerHTML = keys
+    .map((p) => {
+      const lis = mapP[p].map((s) => `<li>${s.nom} <small>(${s.branche})</small></li>`).join("");
+      return `
+        <div class="item-card" style="border-left-color:#e67e22;">
+          <h3 style="color:#e67e22;">🤝 ${p}</h3>
+          <p><strong>Filleul(s) :</strong></p>
+          <ul style="margin-left:20px; font-size:0.9rem;">${lis}</ul>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderAll() {
+  if (!currentUser) return;
+  renderScouts();
+  renderPedagogie();
+  renderCamps();
+  renderPresences();
+  renderMateriel();
+  renderParrains();
+  renderChefs();
+  renderFinances();
+  renderSettingsInputs();
+}
+
+async function initApp() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const pDate = document.getElementById("p_date");
+  const fDate = document.getElementById("f_date");
+  if (pDate && !pDate.value) pDate.value = todayStr;
+  if (fDate && !fDate.value) fDate.value = todayStr;
+
+  try {
+    const snap = await docRefObion.get();
+    if (snap.exists) {
+      db = snap.data();
+      normalizeDb();
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    } else {
+      normalizeDb();
+      await docRefObion.set(db, { merge: true });
+    }
+  } catch (err) {
+    console.warn("Chargement hors ligne / secours local :", err);
+    normalizeDb();
+  }
+
+  populateLoginSelect();
+  document.getElementById("loaderScreen").style.display = "none";
+
+  const savedSession = sessionStorage.getItem(SESSION_KEY);
+  if (savedSession) {
+    try {
+      const parsed = JSON.parse(savedSession);
+      const match = getUsersList().find((u) => u.id === parsed.id);
+      if (match) {
+        currentUser = match;
+        document.getElementById("appContainer").style.display = "block";
+        applyRolePermissions();
+        renderAll();
+        return;
+      }
+    } catch (_) {}
+  }
+
+  document.getElementById("loginScreen").style.display = "flex";
+}
+
+window.addEventListener("DOMContentLoaded", initApp);

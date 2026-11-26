@@ -193,6 +193,13 @@ function buildCotisationReminderMessage(scout) {
   return `Bonjour chers parents,\n\n${scout.nom} est bien enregistré(e) dans l'effectif (${scout.branche} — Groupe OBION). À ce jour, la cotisation annuelle de 2 500 FCFA n'a pas encore été réglée.\n\nNous vous rappelons que le paiement effectif de cette cotisation est indispensable pour que ${scout.nom} puisse participer à nos activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise si vous avez une question. Fraternellement, la Maîtrise — Groupe OBION.`;
 }
 
+function buildMonthlyCotisationReminderMessage(memberName, contextLabel, mois, montant) {
+  const montantText = Number(montant || 0) > 0
+    ? ` d'un montant de ${fPrix(montant)}`
+    : "";
+  return `Bonjour chers parents,\n\n${memberName} est bien enregistré(e) dans l'effectif (${contextLabel} — Groupe OBION). À ce jour, la cotisation mensuelle du mois de ${mois}${montantText} n'a pas encore été réglée.\n\nNous vous rappelons que le paiement effectif des cotisations est indispensable pour que le jeune puisse participer à nos prochaines activités.\n\nMerci de régulariser au plus vite ou de contacter la maîtrise en cas de question. Fraternellement, la Maîtrise — Groupe OBION.`;
+}
+
 function buildActivityParentMessage(titre, branche, datesTxt, lieu, montant) {
   const fraisLine = Number(montant || 0) > 0
     ? `\n\nLe montant à payer pour cette activité est de ${fPrix(montant)}.`
@@ -283,8 +290,8 @@ function getUsersList() {
       isCG: true,
       isAdjoint: false,
       isFinancier: true,
-      canFullAdmin: true,
       hasOverview: true,
+      canFullAdmin: true,
       brancheAutorisee: "Toutes"
     }
   ];
@@ -1819,6 +1826,268 @@ function getCotisationAnnuelleChefMontant(chef) {
   return isCG ? Number(db.settings.cot_cg || 3000) : Number(db.settings.cot_cu || 2600);
 }
 
+function getSelectedCotMonth() {
+  const input = document.getElementById("cot_mois_cible");
+  if (input && input.value) return input.value;
+  const nowMonth = new Date().toISOString().slice(0, 7);
+  if (input) input.value = nowMonth;
+  return nowMonth;
+}
+
+function isMensuellePaid(kind, memberId, mois) {
+  const tag = `[MENS:${kind}:${memberId}:${mois}]`;
+  return db.finances.some(
+    (f) => f.type === "in" && f.cat === "Cotisation Mensuelle" && String(f.motif || "").includes(tag)
+  );
+}
+
+async function validerCotisationAnnuelleDirecte(kind, memberId) {
+  if (!canManageFinancesAndMatricules()) {
+    alert("Accès réservé au Trésorier / Financier.");
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (kind === "scout") {
+    const s = db.scouts.find((x) => x.id === memberId);
+    if (!s) return;
+    if (!s.cotisation) {
+      db.scouts = db.scouts.map((x) => (x.id === memberId ? { ...x, cotisation: true } : x));
+      db.finances.push({
+        id: "fin_" + Date.now(),
+        type: "in",
+        cat: "Cotisation Annuelle",
+        montant: 2500,
+        date: today,
+        motif: `Cotisation annuelle jeune — ${s.nom} (${s.branche})`
+      });
+      await syncCloud(true);
+      renderAll();
+    }
+  } else if (kind === "chef") {
+    const c = db.chefs.find((x) => x.id === memberId);
+    if (!c) return;
+    if (!c.cotisation) {
+      const montant = getCotisationAnnuelleChefMontant(c);
+      db.chefs = db.chefs.map((x) => (x.id === memberId ? { ...x, cotisation: true } : x));
+      db.finances.push({
+        id: "fin_" + Date.now(),
+        type: "in",
+        cat: "Cotisation Annuelle",
+        montant,
+        date: today,
+        motif: `Cotisation annuelle maîtrise — ${c.nom} (${c.fonction})`
+      });
+      await syncCloud(true);
+      renderAll();
+    }
+  }
+}
+
+async function validerCotisationMensuelleDirecte(kind, memberId) {
+  if (!canManageFinancesAndMatricules()) {
+    alert("Accès réservé au Trésorier / Financier.");
+    return;
+  }
+  const mois = getSelectedCotMonth();
+  if (isMensuellePaid(kind, memberId, mois)) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (kind === "scout") {
+    const s = db.scouts.find((x) => x.id === memberId);
+    if (!s) return;
+    const montant = Number(db.settings.cot_mens_j || 0);
+    if (montant <= 0) {
+      alert("Définissez d'abord le montant de la cotisation mensuelle jeune ci-dessus.");
+      return;
+    }
+    db.finances.push({
+      id: "fin_" + Date.now(),
+      type: "in",
+      cat: "Cotisation Mensuelle",
+      montant,
+      date: today,
+      motif: `Cotisation mensuelle ${mois} — ${s.nom} (${s.branche}) [MENS:scout:${s.id}:${mois}]`
+    });
+  } else if (kind === "chef") {
+    const c = db.chefs.find((x) => x.id === memberId);
+    if (!c) return;
+    const montant = Number(db.settings.cot_mens_c || 0);
+    if (montant <= 0) {
+      alert("Définissez d'abord le montant de la cotisation mensuelle chef ci-dessus.");
+      return;
+    }
+    db.finances.push({
+      id: "fin_" + Date.now(),
+      type: "in",
+      cat: "Cotisation Mensuelle",
+      montant,
+      date: today,
+      motif: `Cotisation mensuelle ${mois} — ${c.nom} (${c.fonction}) [MENS:chef:${c.id}:${mois}]`
+    });
+  }
+
+  await syncCloud(true);
+  renderAll();
+}
+
+function renderCotisationsValidation() {
+  const tbody = document.getElementById("cotisationsValidationList");
+  if (!tbody) return;
+  const mois = getSelectedCotMonth();
+  const filtre = document.getElementById("cot_filtre_type")?.value || "tous";
+  const rows = [];
+
+  if (filtre === "tous" || filtre === "jeunes") {
+    const montantMensJ = Number(db.settings.cot_mens_j || 0);
+    db.scouts.forEach((s) => {
+      const annPayee = Boolean(s.cotisation);
+      const mensPayee = isMensuellePaid("scout", s.id, mois);
+      const waMensBtn = !mensPayee && s.tel
+        ? `<a href="${getWaLink(s.tel, buildMonthlyCotisationReminderMessage(s.nom, s.branche, mois, montantMensJ))}" target="_blank" class="wa-btn">📱 Relancer mensuelle</a>`
+        : "";
+
+      rows.push(`
+        <tr>
+          <td><strong>${s.nom}</strong> <small>(Jeune • ${s.branche})</small></td>
+          <td>${annPayee ? `<span class="status-dot status-green"></span> Payée (2 500 FCFA)` : `<span class="status-dot status-red"></span> Non payée (2 500 FCFA)`}</td>
+          <td>${mensPayee ? `<span class="status-dot status-green"></span> Payée (${mois})` : `<span class="status-dot status-red"></span> Non payée (${mois})`}</td>
+          <td style="display:flex; gap:6px; flex-wrap:wrap;">
+            ${!annPayee ? `<button class="btn btn-success" onclick="validerCotisationAnnuelleDirecte('scout','${s.id}')">Valider Annuelle</button>` : ""}
+            ${!mensPayee ? `<button class="btn btn-main" style="width:auto; margin-top:0;" onclick="validerCotisationMensuelleDirecte('scout','${s.id}')">Valider Mensuelle</button>` : ""}
+            ${waMensBtn}
+          </td>
+        </tr>
+      `);
+    });
+  }
+
+  if (filtre === "tous" || filtre === "chefs") {
+    const montantMensC = Number(db.settings.cot_mens_c || 0);
+    db.chefs.forEach((c) => {
+      const montantAnn = getCotisationAnnuelleChefMontant(c);
+      const annPayee = Boolean(c.cotisation);
+      const mensPayee = isMensuellePaid("chef", c.id, mois);
+      const waMensBtn = !mensPayee && c.tel
+        ? `<a href="${getWaLink(c.tel, buildMonthlyCotisationReminderMessage(c.nom, c.titre || c.fonction, mois, montantMensC))}" target="_blank" class="wa-btn">📱 Relancer mensuelle</a>`
+        : "";
+
+      rows.push(`
+        <tr>
+          <td><strong>${c.nom}</strong> <small>(Maîtrise • ${c.fonction})</small></td>
+          <td>${annPayee ? `<span class="status-dot status-green"></span> Payée (${fPrix(montantAnn)})` : `<span class="status-dot status-red"></span> Non payée (${fPrix(montantAnn)})`}</td>
+          <td>${mensPayee ? `<span class="status-dot status-green"></span> Payée (${mois})` : `<span class="status-dot status-red"></span> Non payée (${mois})`}</td>
+          <td style="display:flex; gap:6px; flex-wrap:wrap;">
+            ${!annPayee ? `<button class="btn btn-success" onclick="validerCotisationAnnuelleDirecte('chef','${c.id}')">Valider Annuelle</button>` : ""}
+            ${!mensPayee ? `<button class="btn btn-main" style="width:auto; margin-top:0;" onclick="validerCotisationMensuelleDirecte('chef','${c.id}')">Valider Mensuelle</button>` : ""}
+            ${waMensBtn}
+          </td>
+        </tr>
+      `);
+    });
+  }
+
+  tbody.innerHTML = rows.join("") || "<tr><td colspan='4'>Aucun membre à afficher.</td></tr>";
+}
+
+function getSelectedPointMonth() {
+  const input = document.getElementById("f_point_mois");
+  if (input && input.value) return input.value;
+  const nowMonth = new Date().toISOString().slice(0, 7);
+  if (input) input.value = nowMonth;
+  return nowMonth;
+}
+
+function getFinancesForMonth(mois) {
+  return db.finances.filter((f) => String(f.date || "").startsWith(mois));
+}
+
+function renderPointMensuel() {
+  const tbody = document.getElementById("pointMensuelList");
+  if (!tbody) return;
+
+  const mois = getSelectedPointMonth();
+  const ops = [...getFinancesForMonth(mois)].sort((a, b) =>
+    String(b.date || "").localeCompare(String(a.date || ""))
+  );
+
+  let mIn = 0;
+  let mOut = 0;
+  ops.forEach((f) => {
+    const amt = Number(f.montant || 0);
+    if (f.type === "in") mIn += amt;
+    else mOut += amt;
+  });
+
+  const jeunesMensOk = db.scouts.filter((s) => isMensuellePaid("scout", s.id, mois)).length;
+  const chefsMensOk = db.chefs.filter((c) => isMensuellePaid("chef", c.id, mois)).length;
+
+  const elIn = document.getElementById("pm_in");
+  const elOut = document.getElementById("pm_out");
+  const elSolde = document.getElementById("pm_solde");
+  const elCotis = document.getElementById("pm_cotis");
+
+  if (elIn) elIn.textContent = fPrix(mIn);
+  if (elOut) elOut.textContent = fPrix(mOut);
+  if (elSolde) {
+    elSolde.textContent = fPrix(mIn - mOut);
+    elSolde.style.color = mIn - mOut >= 0 ? "#27ae60" : "#c0392b";
+  }
+  if (elCotis) {
+    elCotis.textContent = `Jeunes : ${jeunesMensOk}/${db.scouts.length} • Chefs : ${chefsMensOk}/${db.chefs.length}`;
+  }
+
+  tbody.innerHTML =
+    ops
+      .map((f) => {
+        const amt = Number(f.montant || 0);
+        const cls = f.type === "in" ? "td-entree" : "td-sortie";
+        const sign = f.type === "in" ? "+" : "-";
+        return `
+          <tr>
+            <td>${f.date || "-"}</td>
+            <td class="${cls}">${f.type === "in" ? "Entrée" : "Sortie"}</td>
+            <td>${f.cat || "-"}</td>
+            <td>${f.motif || "-"}</td>
+            <td class="${cls}">${sign} ${fPrix(amt)}</td>
+          </tr>
+        `;
+      })
+      .join("") || "<tr><td colspan='5'>Aucune opération enregistrée pour ce mois.</td></tr>";
+}
+
+function printPointMensuel() {
+  const mois = getSelectedPointMonth();
+  const ops = [...getFinancesForMonth(mois)].sort((a, b) =>
+    String(a.date || "").localeCompare(String(b.date || ""))
+  );
+
+  let mIn = 0;
+  let mOut = 0;
+  const rows = ops.map((f) => {
+    const amt = Number(f.montant || 0);
+    if (f.type === "in") mIn += amt;
+    else mOut += amt;
+    const sign = f.type === "in" ? "+" : "-";
+    return `<tr><td>${f.date || "-"}</td><td>${f.type === "in" ? "Entrée" : "Sortie"}</td><td>${f.cat || "-"}</td><td>${f.motif || "-"}</td><td>${sign} ${fPrix(amt)}</td></tr>`;
+  });
+
+  const jeunesMensOk = db.scouts.filter((s) => isMensuellePaid("scout", s.id, mois)).length;
+  const chefsMensOk = db.chefs.filter((c) => isMensuellePaid("chef", c.id, mois)).length;
+
+  document.getElementById("printArea").innerHTML = `
+    ${renderDocumentHeader("Point Mensuel des Finances", `Période : ${mois}`)}
+    <p><strong>Entrées du mois :</strong> ${fPrix(mIn)} | <strong>Sorties du mois :</strong> ${fPrix(mOut)} | <strong>Solde net :</strong> ${fPrix(mIn - mOut)}</p>
+    <p style="margin-top:6px;"><strong>Cotisations mensuelles payées :</strong> Jeunes : ${jeunesMensOk} / ${db.scouts.length} | Maîtrise : ${chefsMensOk} / ${db.chefs.length}</p>
+    <table>
+      <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead>
+      <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération pour ce mois.</td></tr>"}</tbody>
+    </table>
+    ${renderCachetCG(true)}
+  `;
+  window.print();
+}
+
 function checkCotisation() {
   const cat = document.getElementById("f_cat").value;
   const linkBox = document.getElementById("f_scout_link");
@@ -1895,13 +2164,20 @@ async function saveFinance() {
     return;
   }
 
+  let finalMotif = motif;
+  if (type === "in" && cat === "Cotisation Mensuelle" && linked) {
+    const [kind, targetId] = linked.split(":");
+    const mois = String(date).slice(0, 7);
+    finalMotif = `${motif} [MENS:${kind}:${targetId}:${mois}]`;
+  }
+
   db.finances.push({
     id: "fin_" + Date.now(),
     type,
     cat,
     montant,
     date,
-    motif
+    motif: finalMotif
   });
 
   if (type === "in" && cat === "Cotisation Annuelle" && linked) {
@@ -2296,9 +2572,10 @@ function renderFinances() {
       const cColor = f.type === "in" ? "td-entree" : "td-sortie";
       const sign = f.type === "in" ? "+" : "-";
       const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && amt === 2500;
+      const cleanMotif = String(f.motif || "").replace(/\[MENS:[^\]]+\]/g, "").trim();
       const motifCell = isCotiJeune
-        ? `${f.motif}<br><small style="color:#555;">Part ASCCI : 2 085 FCFA • Part Caisse Groupe : 415 FCFA</small>`
-        : f.motif;
+        ? `${cleanMotif}<br><small style="color:#555;">Part ASCCI : 2 085 FCFA • Part Caisse Groupe : 415 FCFA</small>`
+        : cleanMotif;
       return `
         <tr>
           <td>${new Date(f.date).toLocaleDateString("fr-FR")}</td>
@@ -2319,6 +2596,8 @@ function renderFinances() {
   document.getElementById("f_split_coti").innerHTML =
     `ASCCI : ${fPrix(paidScoutsCount * 2085)}<br>Caisse : ${fPrix(paidScoutsCount * 415)}`;
 
+  renderPointMensuel();
+  renderCotisationsValidation();
   renderMatriculeAssignTable();
 }
 
@@ -2428,10 +2707,15 @@ function finishInitUI() {
 
 async function initApp() {
   const todayStr = new Date().toISOString().slice(0, 10);
+  const nowMonth = todayStr.slice(0, 7);
   const pDate = document.getElementById("p_date");
   const fDate = document.getElementById("f_date");
+  const cotMois = document.getElementById("cot_mois_cible");
+  const pointMois = document.getElementById("f_point_mois");
   if (pDate && !pDate.value) pDate.value = todayStr;
   if (fDate && !fDate.value) fDate.value = todayStr;
+  if (cotMois && !cotMois.value) cotMois.value = nowMonth;
+  if (pointMois && !pointMois.value) pointMois.value = nowMonth;
 
   normalizeDb();
   finishInitUI();

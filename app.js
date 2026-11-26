@@ -802,6 +802,7 @@ function afficherActivitesObion() {
         </details>
 
         <p>${echapper(activite.description)}</p>
+        <button type="button" class="btnSupprimerActivite" data-index="${indexActivite}">Supprimer l’activité</button>
       </div>
     `;
   }).join("");

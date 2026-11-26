@@ -729,7 +729,28 @@ function afficherActivitesObion() {
       }))
     };
 
-    activitesObion.push(nouvelleActivite);
+  if (activiteEnModification !== null && activitesObion[activiteEnModification]) {
+      const ancienne = activitesObion[activiteEnModification];
+      const anciensJeunes = ancienne.participants || [];
+      const anciensChefs = ancienne.chefsParticipants || [];
+
+      nouvelleActivite.id = ancienne.id;
+
+      nouvelleActivite.participants = nouvelleActivite.participants.map((p) => {
+        const trouve = anciensJeunes.find((aj) => aj.nom === p.nom && aj.branche === p.branche);
+        return trouve ? { ...p, paye: Number(trouve.paye || 0) } : p;
+      });
+
+      nouvelleActivite.chefsParticipants = nouvelleActivite.chefsParticipants.map((c) => {
+        const trouve = anciensChefs.find((ac) => ac.nom === c.nom);
+        return trouve ? { ...c, paye: Number(trouve.paye || 0) } : c;
+      });
+
+      activitesObion[activiteEnModification] = nouvelleActivite;
+      activiteEnModification = null;
+    } else {
+      activitesObion.push(nouvelleActivite);
+    }
     sauvegarderActivitesObion();
     afficherActivitesObion();
   });
@@ -829,11 +850,19 @@ function afficherActivitesObion() {
           }).join("")}
         </details>
 
-        <p>${echapper(activite.description)}</p>
+  <p>${echapper(activite.description)}</p>
+        <button type="button" class="btnModifierActivite" data-index="${indexActivite}">Modifier l’activité</button>
         <button type="button" class="btnSupprimerActivite" data-index="${indexActivite}">Supprimer l’activité</button>
       </div>
     `;
   }).join("");
+  document.querySelectorAll(".btnModifierActivite").forEach((bouton) => {
+    bouton.addEventListener("click", () => {
+      activiteEnModification = Number(bouton.dataset.index);
+      afficherActivitesObion();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  });
 document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
     bouton.addEventListener("click", () => {
       const indexActivite = Number(bouton.dataset.index);

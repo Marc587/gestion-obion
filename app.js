@@ -31,8 +31,13 @@ const defaultData = {
     logo_district: "logo-district.jpg",
     logo_groupe: "logo.jpg",
     cachet_actif: true,
-    cot_j: 0,
-    cot_c: 0,
+    cot_j_total: 2500,
+    cot_j_ascci: 2085,
+    cot_j_groupe: 415,
+    cot_cu: 2600,
+    cot_cg: 3000,
+    cot_mens_j: 0,
+    cot_mens_c: 0,
     prog: {
       Oisillon: "Découverte, Petit pas, Aile déployée",
       Meute: "Patte tendre, 1re étoile, 2e étoile, 3e étoile",
@@ -107,6 +112,9 @@ function normalizeDb() {
   db.finances = Array.isArray(db.finances) ? db.finances : [];
   db.materiel = Array.isArray(db.materiel) ? db.materiel : [];
   db.settings = Object.assign(structuredClone(defaultData.settings), db.settings || {});
+  db.settings.cot_j_total = 2500;
+  db.settings.cot_j_ascci = 2085;
+  db.settings.cot_j_groupe = 415;
   db.settings.prog = Object.assign(
     structuredClone(defaultData.settings.prog),
     db.settings.prog || {}
@@ -162,6 +170,25 @@ function renderCachetCG(forceInclude = true) {
   `;
 }
 
+function findPrincipalCUForBranch(branche) {
+  if (!branche || branche === "Toutes") return null;
+  const titleByBranch = {
+    Oisillon: "Micou",
+    Meute: "Akela",
+    Troupe: "Chef de Troupe",
+    Chemin: "Safouin"
+  };
+  const expectedTitle = titleByBranch[branche];
+  return (
+    db.chefs.find(
+      (c) =>
+        (expectedTitle && c.titre === expectedTitle) ||
+        (String(c.fonction || "").toLowerCase().includes("cu") &&
+          String(c.titre || "").toLowerCase().includes(branche.toLowerCase()))
+    ) || null
+  );
+}
+
 async function syncCloud(showAlertError = false) {
   normalizeDb();
   applyAppAndBrandLogos();
@@ -212,45 +239,43 @@ function startRealtimeListener() {
   );
 }
 
-function isFinancierChef(chef) {
+function isChefTresorier(chef) {
   if (!chef) return false;
+  if (chef.estTresorier) return true;
   const text = `${chef.titre || ""} ${chef.fonction || ""}`.toLowerCase();
   return text.includes("financier") || text.includes("trésorier") || text.includes("tresorier");
 }
 
-function isFinancierUser() {
-  if (!currentUser) return false;
-  const text = `${currentUser.titre || ""} ${currentUser.fonction || ""}`.toLowerCase();
-  return text.includes("financier") || text.includes("trésorier") || text.includes("tresorier");
-}
-
-function getDashboardRole() {
-  if (!currentUser) return "unite";
-  if (isFinancierUser()) return "financier";
-  if (currentUser.isAdmin) return "cg";
-  return "unite";
+function isChefAdjoint(chef) {
+  if (!chef) return false;
+  const text = `${chef.titre || ""} ${chef.fonction || ""}`.toLowerCase();
+  return text.includes("adjoint");
 }
 
 function getUsersList() {
   const list = [
     {
       id: "cg_default",
-      nom: "Chef de Groupe (Admin)",
+      nom: "Chef de Groupe (CG)",
       titre: "Groupe et ressources adultes",
       fonction: "Chef de Groupe",
       pin: "1234",
-      isAdmin: true,
+      isCG: true,
+      isAdjoint: false,
+      isFinancier: true,
+      canFullAdmin: true,
       brancheAutorisee: "Toutes"
     }
   ];
 
   db.chefs.forEach((chef) => {
-    const isAdmin =
-      chef.titre === "Coordinateur" ||
-      chef.titre === "Groupe et ressources adultes" ||
-      chef.fonction === "Chef de Groupe" ||
-      chef.fonction === "Membre du Comité" ||
-      isFinancierChef(chef);
+    const adjoint = isChefAdjoint(chef);
+    const tresorier = isChefTresorier(chef);
+    const cgRole =
+      !adjoint &&
+      (chef.titre === "Groupe et ressources adultes" ||
+        chef.fonction === "Chef de Groupe");
+    const coordinateur = chef.titre === "Coordinateur" || chef.fonction === "Membre du Comité";
 
     const brancheMap = {
       Micou: "Oisillon",
@@ -259,18 +284,46 @@ function getUsersList() {
       Safouin: "Chemin"
     };
 
+    const canFullAdmin = cgRole || coordinateur;
+    const hasOverview = canFullAdmin || adjoint;
+    const isFinancier = tresorier || cgRole;
+
     list.push({
       id: chef.id,
       nom: chef.nom,
       titre: chef.titre,
       fonction: chef.fonction,
       pin: String(chef.pin || "1234"),
-      isAdmin: isAdmin,
-      brancheAutorisee: isAdmin ? "Toutes" : (brancheMap[chef.titre] || "Toutes")
+      isCG: cgRole,
+      isAdjoint: adjoint,
+      isFinancier: isFinancier,
+      hasOverview: hasOverview,
+      canFullAdmin: canFullAdmin,
+      brancheAutorisee: hasOverview ? "Toutes" : (brancheMap[chef.titre] || "Toutes")
     });
   });
 
   return list;
+}
+
+function canViewTab(tabName) {
+  if (!currentUser) return false;
+  if (currentUser.canFullAdmin) return true;
+  if (currentUser.isAdjoint) {
+    return ["dashboard", "programme", "effectifs", "pedagogie", "camps", "presences", "materiel", "parrains", "maitrise"].includes(tabName);
+  }
+  if (currentUser.isFinancier) {
+    return ["dashboard", "programme", "effectifs", "camps", "maitrise", "finances"].includes(tabName);
+  }
+  return ["dashboard", "programme", "effectifs", "pedagogie", "camps", "presences", "materiel", "parrains"].includes(tabName);
+}
+
+function canManageFinancesAndMatricules() {
+  return Boolean(currentUser && (currentUser.isFinancier || currentUser.canFullAdmin));
+}
+
+function canManageFullAdmin() {
+  return Boolean(currentUser && currentUser.canFullAdmin);
 }
 
 function populateLoginSelect() {
@@ -278,7 +331,13 @@ function populateLoginSelect() {
   if (!select) return;
   const users = getUsersList();
   select.innerHTML = users
-    .map((u) => `<option value="${u.id}">${u.nom} — ${u.titre}</option>`)
+    .map((u) => {
+      const tags = [];
+      if (u.isAdjoint) tags.push("Adjoint");
+      if (u.isFinancier) tags.push("Trésorier / Financier");
+      const suffix = tags.length > 0 ? ` [${tags.join(" • ")}]` : "";
+      return `<option value="${u.id}">${u.nom} — ${u.titre}${suffix}</option>`;
+    })
     .join("");
 }
 
@@ -312,19 +371,45 @@ function logout() {
 
 function applyRolePermissions() {
   if (!currentUser) return;
+  const roleBadges = [];
+  if (currentUser.canFullAdmin) roleBadges.push("Direction");
+  if (currentUser.isAdjoint) roleBadges.push("Adjoint - Vision globale");
+  if (currentUser.isFinancier) roleBadges.push("Trésorier / Financier");
+  const badgeText = roleBadges.length > 0 ? ` • ${roleBadges.join(" / ")}` : "";
+
   document.getElementById("current_user_display").textContent =
-    `${currentUser.nom} (${currentUser.titre})`;
+    `${currentUser.nom} (${currentUser.titre})${badgeText}`;
   document.getElementById("p_resp").value = currentUser.nom;
 
-  document.querySelectorAll(".admin-only").forEach((el) => {
-    if (currentUser.isAdmin) {
-      el.classList.remove("hidden");
-    } else {
-      el.classList.add("hidden");
+  ["dashboard", "programme", "effectifs", "pedagogie", "camps", "presences", "materiel", "parrains", "maitrise", "finances", "parametres"].forEach(
+    (tab) => {
+      const btn = document.getElementById("tab_" + tab);
+      if (btn) {
+        if (canViewTab(tab)) btn.classList.remove("hidden");
+        else btn.classList.add("hidden");
+      }
     }
-  });
+  );
 
-  if (!currentUser.isAdmin && currentUser.brancheAutorisee !== "Toutes") {
+  const csvCard = document.getElementById("csvEffectifsCard");
+  if (csvCard) {
+    if (canManageFullAdmin()) csvCard.classList.remove("hidden");
+    else csvCard.classList.add("hidden");
+  }
+
+  const maitriseForm = document.getElementById("maitriseFormCard");
+  if (maitriseForm) {
+    if (canManageFullAdmin()) maitriseForm.classList.remove("hidden");
+    else maitriseForm.classList.add("hidden");
+  }
+
+  const btnCmd = document.getElementById("btnCmdInsignes");
+  if (btnCmd) {
+    if (canManageFullAdmin() || currentUser.isAdjoint) btnCmd.classList.remove("hidden");
+    else btnCmd.classList.add("hidden");
+  }
+
+  if (!currentUser.hasOverview && currentUser.brancheAutorisee !== "Toutes") {
     ["filterScout", "filterPeda", "camp_branche", "p_branche", "prog_branche", "filterProgBranche"].forEach(
       (id) => {
         const sel = document.getElementById(id);
@@ -336,9 +421,8 @@ function applyRolePermissions() {
 
 function nav(sectionName) {
   if (!currentUser) return;
-  const adminTabs = ["maitrise", "finances", "parametres"];
-  if (adminTabs.includes(sectionName) && !currentUser.isAdmin) {
-    alert("Accès réservé à la direction du groupe.");
+  if (!canViewTab(sectionName)) {
+    alert("Accès non autorisé pour ce rôle.");
     return;
   }
 
@@ -400,7 +484,7 @@ function resetProgrammeForm() {
   document.getElementById("prog_fin").value = "";
   document.getElementById("prog_lieu").value = "";
   document.getElementById("prog_branche").value =
-    currentUser && !currentUser.isAdmin && currentUser.brancheAutorisee !== "Toutes"
+    currentUser && !currentUser.hasOverview && currentUser.brancheAutorisee !== "Toutes"
       ? currentUser.brancheAutorisee
       : "Toutes";
   document.getElementById("prog_statut").value = "À préparer";
@@ -416,7 +500,7 @@ async function saveProgrammeItem() {
   const debut = document.getElementById("prog_debut").value;
   const fin = document.getElementById("prog_fin").value || debut;
   const lieu = document.getElementById("prog_lieu").value.trim() || "Saint Bernard d'Adiopodoumé";
-  const branche = currentUser.isAdmin
+  const branche = currentUser.hasOverview
     ? document.getElementById("prog_branche").value
     : currentUser.brancheAutorisee;
   const statut = document.getElementById("prog_statut").value;
@@ -513,6 +597,44 @@ async function deleteProgrammeItem(id) {
   db.programme = db.programme.filter((p) => p.id !== id);
   await syncCloud(true);
   renderAll();
+}
+
+function printProgramme() {
+  const filterBranche = currentUser && currentUser.hasOverview
+    ? (document.getElementById("filterProgBranche")?.value || "Toutes")
+    : (currentUser ? currentUser.brancheAutorisee : "Toutes");
+  const filterStatut = document.getElementById("filterProgStatut")?.value || "Tous";
+
+  const items = [...db.programme]
+    .filter((p) => {
+      const okB = filterBranche === "Toutes" || p.branche === "Toutes" || p.branche === filterBranche;
+      const okS = filterStatut === "Tous" || p.statut === filterStatut;
+      return okB && okS;
+    })
+    .sort((a, b) => String(a.debut || "").localeCompare(String(b.debut || "")));
+
+  const rows = items.map((p) => {
+    const periode = p.fin && p.fin !== p.debut ? `${p.debut} au ${p.fin}` : (p.debut || "-");
+    return `
+      <tr>
+        <td>${periode}</td>
+        <td><strong>${p.titre}</strong><br><small>${p.type}</small></td>
+        <td>${p.branche}</td>
+        <td>${p.lieu || "-"}</td>
+        <td>${p.statut}</td>
+      </tr>
+    `;
+  });
+
+  document.getElementById("printArea").innerHTML = `
+    ${renderDocumentHeader("Programme d'Activités Annuel", `Branche : ${filterBranche} • Statut : ${filterStatut}`)}
+    <table>
+      <thead><tr><th>Date(s)</th><th>Activité</th><th>Branche</th><th>Lieu</th><th>Statut</th></tr></thead>
+      <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune activité planifiée.</td></tr>"}</tbody>
+    </table>
+    ${renderCachetCG(true)}
+  `;
+  window.print();
 }
 
 function openProgChecklist(id) {
@@ -645,7 +767,7 @@ function renderProgramme() {
   const listEl = document.getElementById("programmeList");
   if (!listEl || !currentUser) return;
 
-  const filterBranche = currentUser.isAdmin
+  const filterBranche = currentUser.hasOverview
     ? (document.getElementById("filterProgBranche")?.value || "Toutes")
     : currentUser.brancheAutorisee;
   const filterStatut = document.getElementById("filterProgStatut")?.value || "Tous";
@@ -700,6 +822,13 @@ function renderProgramme() {
     .join("");
 }
 
+function getDashboardRole() {
+  if (!currentUser) return "unite";
+  if (currentUser.isFinancier && !currentUser.canFullAdmin && !currentUser.isAdjoint) return "financier";
+  if (currentUser.canFullAdmin || currentUser.isAdjoint) return "cg";
+  return "unite";
+}
+
 function renderDashboard() {
   const container = document.getElementById("dashboardContent");
   if (!container || !currentUser) return;
@@ -740,9 +869,25 @@ function renderDashboard() {
       })
       .join("");
 
+    const roleTitle = currentUser.isAdjoint
+      ? "📊 Tableau de bord — Chef de Groupe Adjoint (Vision globale)"
+      : "📊 Tableau de bord — Chef de Groupe";
+
+    const financeCardHtml = canManageFinancesAndMatricules()
+      ? `<div class="card" style="margin-bottom:0; text-align:center;">
+           <small>Solde de Caisse</small>
+           <h2 style="color:${soldeCaisse >= 0 ? "#27ae60" : "#c0392b"}; margin-top:5px;">${fPrix(soldeCaisse)}</h2>
+           <small>Entrées : ${fPrix(totalEntrees)} • Sorties : ${fPrix(totalSorties)}</small>
+         </div>`
+      : `<div class="card" style="margin-bottom:0; text-align:center;">
+           <small>Matricules ASCCI attribués</small>
+           <h2 style="color:#2980b9; margin-top:5px;">${db.scouts.filter((s) => Boolean(s.mat)).length} / ${db.scouts.length}</h2>
+           <small>Après paiement cotisation annuelle</small>
+         </div>`;
+
     container.innerHTML = `
       <div class="card" style="border-left: 5px solid var(--c-cg);">
-        <h2 class="card-header">📊 Tableau de bord — Chef de Groupe</h2>
+        <h2 class="card-header">${roleTitle}</h2>
         <p style="color:#555; margin-bottom:15px;">Vue d'ensemble du Groupe OBION (Saint Bernard d'Adiopodoumé KM17).</p>
         <div class="grid-form">
           <div class="card" style="margin-bottom:0; text-align:center;">
@@ -755,11 +900,7 @@ function renderDashboard() {
             <h2 style="color:var(--c-cg); margin-top:5px;">${db.chefs.length}</h2>
             <small>${chefsAJour} chef(s) à jour</small>
           </div>
-          <div class="card" style="margin-bottom:0; text-align:center;">
-            <small>Solde de Caisse</small>
-            <h2 style="color:${soldeCaisse >= 0 ? "#27ae60" : "#c0392b"}; margin-top:5px;">${fPrix(soldeCaisse)}</h2>
-            <small>Entrées : ${fPrix(totalEntrees)} • Sorties : ${fPrix(totalSorties)}</small>
-          </div>
+          ${financeCardHtml}
           <div class="card" style="margin-bottom:0; text-align:center;">
             <small>Programme & Camps</small>
             <h2 style="color:#2980b9; margin-top:5px;">${db.programme.length} / ${db.camps.length}</h2>
@@ -773,7 +914,7 @@ function renderDashboard() {
         ${upcomingHtml}
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;">
           <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Ouvrir le programme annuel</button>
-          <button class="btn btn-warning" onclick="nav('finances')">Voir la caisse</button>
+          ${canManageFinancesAndMatricules() ? `<button class="btn btn-warning" onclick="nav('finances')">Voir la caisse & matricules</button>` : ""}
           <button class="btn btn-secondary" onclick="nav('effectifs')">Effectifs</button>
         </div>
       </div>
@@ -788,16 +929,12 @@ function renderDashboard() {
 
   if (role === "financier") {
     const scoutsImpayes = db.scouts.filter((s) => !s.cotisation).length;
-    const chefsImpayes = db.chefs.filter((c) => !c.cotisation).length;
-    const totalFraisCamps = db.camps.reduce((sum, c) => {
-      const parts = Array.isArray(c.participants) ? c.participants : [];
-      return sum + parts.reduce((acc, p) => acc + Number(p.paye || 0), 0);
-    }, 0);
+    const sansMatricule = db.scouts.filter((s) => s.cotisation && !s.mat).length;
 
     container.innerHTML = `
       <div class="card" style="border-left: 5px solid #27ae60;">
-        <h2 class="card-header">💰 Tableau de bord — Financier / Trésorier</h2>
-        <p style="color:#555; margin-bottom:15px;">Suivi de la trésorerie, des cotisations annuelles et des participations de camps.</p>
+        <h2 class="card-header">💰 Tableau de bord — Trésorier / Financier</h2>
+        <p style="color:#555; margin-bottom:15px;">Gestion des cotisations (annuelles et mensuelles), de la caisse et des matricules ASCCI après paiement.</p>
         <div class="grid-form">
           <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #27ae60;">
             <small>Total Entrées</small>
@@ -811,16 +948,15 @@ function renderDashboard() {
             <small>Solde Caisse</small>
             <h2 style="color:var(--text-main); margin-top:5px;">${fPrix(soldeCaisse)}</h2>
           </div>
-          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #e67e22;">
-            <small>Cotisations à relancer</small>
-            <h2 style="color:#e67e22; margin-top:5px;">${scoutsImpayes} jeunes / ${chefsImpayes} chefs</h2>
-            <small>Encaissé camps : ${fPrix(totalFraisCamps)}</small>
+          <div class="card" style="margin-bottom:0; text-align:center; border-bottom:4px solid #2980b9;">
+            <small>Matricules à attribuer</small>
+            <h2 style="color:#2980b9; margin-top:5px;">${sansMatricule}</h2>
+            <small>${scoutsImpayes} jeune(s) en attente de cotisation</small>
           </div>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
-          <button class="btn btn-warning" onclick="nav('finances')">Saisir une opération / Livre de caisse</button>
-          <button class="btn btn-secondary" onclick="nav('camps')">Suivre les paiements de camps</button>
-          <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Voir le programme & budgets</button>
+          <button class="btn btn-warning" onclick="nav('finances')">Caisse, Cotisations & Matricules</button>
+          <button class="btn btn-secondary" onclick="nav('effectifs')">Voir les effectifs</button>
         </div>
       </div>
     `;
@@ -910,7 +1046,7 @@ function autoBranch() {
 function resetScoutForm() {
   document.getElementById("s_id").value = "";
   document.getElementById("formTitleScout").textContent = "➕ Inscrire un jeune";
-  ["s_mat", "s_nom", "s_ddn", "s_branche", "s_sousunite", "s_role", "s_tel", "s_tel_perso", "s_parrain", "s_parrain_tel", "s_medical", "s_urgence"].forEach((id) => {
+  ["s_nom", "s_ddn", "s_branche", "s_sousunite", "s_role", "s_tel", "s_tel_perso", "s_parrain", "s_parrain_tel", "s_medical", "s_urgence"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
@@ -920,21 +1056,20 @@ function resetScoutForm() {
 
 async function saveScout() {
   const id = document.getElementById("s_id").value;
-  const mat = document.getElementById("s_mat").value.trim();
   const nom = document.getElementById("s_nom").value.trim();
   const ddn = document.getElementById("s_ddn").value;
   const branche = document.getElementById("s_branche").value.trim() || "Oisillon";
   const tel = document.getElementById("s_tel").value.trim();
 
-  if (!mat || !nom || !ddn || !tel) {
-    alert("Merci de renseigner au moins le matricule, le nom complet, la date de naissance et le contact parent.");
+  if (!nom || !ddn || !tel) {
+    alert("Merci de renseigner au moins le nom complet, la date de naissance et le contact parent.");
     return;
   }
 
   const existing = id ? db.scouts.find((s) => s.id === id) : null;
   const record = {
     id: id || "sc_" + Date.now(),
-    mat,
+    mat: existing ? (existing.mat || "") : "",
     nom,
     ddn,
     branche,
@@ -969,7 +1104,6 @@ function editScout(id) {
   if (!s) return;
   document.getElementById("s_id").value = s.id;
   document.getElementById("formTitleScout").textContent = "✏️ Modifier le dossier de " + s.nom;
-  document.getElementById("s_mat").value = s.mat || "";
   document.getElementById("s_nom").value = s.nom || "";
   document.getElementById("s_ddn").value = s.ddn || "";
   document.getElementById("s_branche").value = s.branche || "";
@@ -987,6 +1121,10 @@ function editScout(id) {
 }
 
 async function deleteScout(id) {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut supprimer un dossier.");
+    return;
+  }
   const s = db.scouts.find((item) => item.id === id);
   if (!s) return;
   if (!confirm("Supprimer le dossier de " + s.nom + " ?")) return;
@@ -996,7 +1134,7 @@ async function deleteScout(id) {
 }
 
 function downloadCsvTemplate() {
-  const csv = "Matricule;Nom;DateNaissance;Branche;SousUnite;Role;ContactParent;ContactJeune;Parrain;ContactParrain;Sang;Medical;Urgence\nOB-001;Kouassi Jean;2014-05-12;Troupe;Aigle;Chef de Patrouille;0700000000;;Koffi Paul;0100000000;O+;Aucune;0500000000";
+  const csv = "Nom;DateNaissance;Branche;SousUnite;Role;ContactParent;ContactJeune;Parrain;ContactParrain;Sang;Medical;Urgence\nKouassi Jean;2014-05-12;Troupe;Aigle;Chef de Patrouille;0700000000;;Koffi Paul;0100000000;O+;Aucune;0500000000";
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
@@ -1013,22 +1151,22 @@ async function importScoutsCSV(event) {
 
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(/[;,]/).map((c) => c.trim());
-    if (!cols[1]) continue;
+    if (!cols[0]) continue;
     db.scouts.push({
       id: "sc_" + Date.now() + "_" + i,
-      mat: cols[0] || "MAT-" + i,
-      nom: cols[1],
-      ddn: cols[2] || "2015-01-01",
-      branche: cols[3] || "Meute",
-      sousunite: cols[4] || "",
-      role: cols[5] || "",
-      tel: cols[6] || "",
-      tel_perso: cols[7] || "",
-      parrain: cols[8] || "",
-      parrain_tel: cols[9] || "",
-      sang: cols[10] || "Inconnu",
-      medical: cols[11] || "",
-      urgence: cols[12] || "",
+      mat: "",
+      nom: cols[0],
+      ddn: cols[1] || "2015-01-01",
+      branche: cols[2] || "Meute",
+      sousunite: cols[3] || "",
+      role: cols[4] || "",
+      tel: cols[5] || "",
+      tel_perso: cols[6] || "",
+      parrain: cols[7] || "",
+      parrain_tel: cols[8] || "",
+      sang: cols[9] || "Inconnu",
+      medical: cols[10] || "",
+      urgence: cols[11] || "",
       cotisation: false,
       totem: "",
       etapesValidees: [],
@@ -1041,18 +1179,22 @@ async function importScoutsCSV(event) {
 }
 
 function exportScoutsCSV() {
-  const header = "Matricule;Nom;Branche;SousUnite;ContactParent;Parrain;ContactParrain;Cotisation;Absences";
+  const header = "MatriculeASCCI;Nom;Branche;SousUnite;ContactParent;Parrain;ContactParrain;CotisationAnnuelle;PartASCCI;PartCaisseGroupe;Absences";
   const rows = db.scouts.map((s) => {
     const abs = getAbsenceCountForScout(s.nom, s.branche);
+    const partAscci = s.cotisation ? 2085 : 0;
+    const partGroupe = s.cotisation ? 415 : 0;
     return [
-      s.mat || "",
+      s.mat || "En attente",
       s.nom || "",
       s.branche || "",
       s.sousunite || "",
       s.tel || "",
       s.parrain || "",
       s.parrain_tel || "",
-      s.cotisation ? "A jour" : "Impaye",
+      s.cotisation ? "A jour (2500)" : "Impaye",
+      partAscci,
+      partGroupe,
       abs
     ]
       .map((v) => String(v).replace(/;/g, ","))
@@ -1068,16 +1210,22 @@ function exportScoutsCSV() {
 }
 
 function exportFinancesCSV() {
-  const header = "Date;Type;Categorie;Motif;Montant";
-  const rows = db.finances.map((f) =>
-    [
+  const header = "Date;Type;Categorie;Motif;MontantTotal;PartASCCI;PartCaisseGroupe";
+  const rows = db.finances.map((f) => {
+    const amt = Number(f.montant || 0);
+    const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && amt === 2500;
+    const partAscci = isCotiJeune ? 2085 : "";
+    const partGroupe = isCotiJeune ? 415 : "";
+    return [
       f.date || "",
       f.type === "in" ? "Entree" : "Sortie",
       f.cat || "",
       String(f.motif || "").replace(/;/g, ","),
-      Number(f.montant || 0)
-    ].join(";")
-  );
+      amt,
+      partAscci,
+      partGroupe
+    ].join(";");
+  });
   const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], {
     type: "text/csv;charset=utf-8;"
   });
@@ -1124,7 +1272,7 @@ function openPedaModal(id) {
   if (!s) return;
   currentPedaScoutId = id;
   document.getElementById("mp_nom").textContent = s.nom;
-  document.getElementById("mp_info").textContent = `${s.branche} • Matricule : ${s.mat} • ${s.sousunite || "Unité"}`;
+  document.getElementById("mp_info").textContent = `${s.branche} • Matricule ASCCI : ${s.mat || "En attente"} • ${s.sousunite || "Unité"}`;
   document.getElementById("mp_totem").value = s.totem || "";
   document.getElementById("mp_obs").value = s.obs || "";
 
@@ -1167,13 +1315,13 @@ function generateCommandes() {
     const valid = Array.isArray(s.etapesValidees) ? s.etapesValidees : [];
     const nextIdx = etapes.findIndex((_, i) => !valid.includes(i));
     const nextStep = nextIdx === -1 ? "Progression complète" : etapes[nextIdx];
-    return `<tr><td>${s.mat}</td><td>${s.nom}</td><td>${s.branche}</td><td>${nextStep}</td></tr>`;
+    return `<tr><td>${s.mat || "En attente"}</td><td>${s.nom}</td><td>${s.branche}</td><td>${nextStep}</td></tr>`;
   });
 
   document.getElementById("printArea").innerHTML = `
     ${renderDocumentHeader("Commande d'Insignes", "Suivi pédagogique des jeunes")}
     <table>
-      <thead><tr><th>Matricule</th><th>Nom</th><th>Branche</th><th>Prochain insigne / étape</th></tr></thead>
+      <thead><tr><th>Matricule ASCCI</th><th>Nom</th><th>Branche</th><th>Prochain insigne / étape</th></tr></thead>
       <tbody>${rows.join("") || "<tr><td colspan='4'>Aucun jeune enregistré.</td></tr>"}</tbody>
     </table>
     ${renderCachetCG(true)}
@@ -1184,17 +1332,23 @@ function generateCommandes() {
 function openAutoConfig(targetType, targetId) {
   currentAutoTarget = { targetType, targetId };
   let label = "Groupe Obion";
+  let targetBranche = "Toutes";
   if (targetType === "scout") {
     const s = db.scouts.find((x) => x.id === targetId);
-    if (s) label = `${s.nom} (${s.branche})`;
+    if (s) {
+      targetBranche = s.branche;
+      label = `${s.nom} (${s.branche}${s.mat ? " • Mat: " + s.mat : ""})`;
+    }
   } else if (targetType === "camp") {
     const c = db.camps.find((x) => x.id === targetId);
     if (c) {
-      label = c.titre;
+      targetBranche = c.branche;
+      label = `${c.titre} (${c.branche})`;
       document.getElementById("ma_custom_text").value =
         `à participer au camp « ${c.titre} » à ${c.lieu} du ${c.debut} au ${c.fin}.`;
     }
   }
+  currentAutoTarget.branche = targetBranche;
   document.getElementById("ma_target_name").textContent = label;
   document.getElementById("ma_include_cachet").checked =
     db.settings ? db.settings.cachet_actif !== false : true;
@@ -1204,15 +1358,39 @@ function openAutoConfig(targetType, targetId) {
 function printAutoRun() {
   const customText = document.getElementById("ma_custom_text").value.trim();
   const includeCachet = document.getElementById("ma_include_cachet").checked;
+  const targetLabel = document.getElementById("ma_target_name").textContent || "Groupe Obion";
   const cgNom = db.settings.cg_nom || "Le Chef de Groupe";
   const cgTel = db.settings.cg_tel || "";
+
+  let branchName = currentAutoTarget && currentAutoTarget.branche ? currentAutoTarget.branche : "";
+  let detailsHtml = `<p><strong>Concerné :</strong> ${targetLabel}</p>`;
+  if (currentAutoTarget && currentAutoTarget.targetType === "scout") {
+    const s = db.scouts.find((x) => x.id === currentAutoTarget.targetId);
+    if (s) {
+      branchName = s.branche;
+      detailsHtml = `
+        <p><strong>Jeune :</strong> ${s.nom} | <strong>Branche :</strong> ${s.branche} | <strong>Matricule ASCCI :</strong> ${s.mat || "En attente"}</p>
+        <p><strong>Contact parent :</strong> ${s.tel || "-"} | <strong>Urgence :</strong> ${s.urgence || "-"}</p>
+      `;
+    }
+  }
+
+  const cuPrincipal = findPrincipalCUForBranch(branchName);
+  const cuLine = cuPrincipal
+    ? `<p><strong>CU principal (${branchName}) :</strong> ${cuPrincipal.nom}${cuPrincipal.tel ? " • Tél : " + cuPrincipal.tel : ""}</p>`
+    : (branchName && branchName !== "Toutes" ? `<p><strong>CU principal (${branchName}) :</strong> Numéro non renseigné dans Maîtrise</p>` : "");
+
   document.getElementById("printArea").innerHTML = `
-    ${renderDocumentHeader("Autorisation Parentale", "Saint Bernard d'Adiopodoumé KM17")}
-    <p style="margin:20px 0; line-height:1.6;">
+    ${renderDocumentHeader("Autorisation Parentale", "Groupe Scout OBION — St Bernard d'Adiopodoumé KM17")}
+    <div style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
+      ${detailsHtml}
+      <p><strong>Chef de Groupe :</strong> ${cgNom}${cgTel ? " • Tél : " + cgTel : ""}</p>
+      ${cuLine}
+    </div>
+    <p style="margin:14px 0; line-height:1.6;">
       Je soussigné(e), parent / tuteur légal, autorise le jeune concerné <strong>${customText}</strong>
     </p>
-    <p><strong>Responsable du groupe :</strong> ${cgNom} ${cgTel ? "• Tél : " + cgTel : ""}</p>
-    <p style="margin-top:24px;">Signature du parent : ___________________________</p>
+    <p style="margin-top:20px;"><strong>Nom & Signature du parent / tuteur :</strong> ___________________________________</p>
     ${renderCachetCG(includeCachet)}
   `;
   closeM("modalAutoConfig");
@@ -1224,7 +1402,7 @@ async function saveCamp() {
   const lieu = document.getElementById("camp_lieu").value.trim();
   const debut = document.getElementById("camp_debut").value;
   const fin = document.getElementById("camp_fin").value;
-  const branche = currentUser.isAdmin
+  const branche = currentUser.hasOverview
     ? document.getElementById("camp_branche").value
     : currentUser.brancheAutorisee;
   const frais = Number(document.getElementById("camp_frais").value || 0);
@@ -1325,6 +1503,10 @@ async function saveCampPart() {
 }
 
 async function deleteCamp(campId) {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut supprimer un camp.");
+    return;
+  }
   if (!confirm("Supprimer ce camp / week-end ?")) return;
   db.camps = db.camps.filter((c) => c.id !== campId);
   db.programme = db.programme.filter((p) => p.linkedCampId !== campId);
@@ -1333,7 +1515,7 @@ async function deleteCamp(campId) {
 }
 
 function genAppel() {
-  const branche = currentUser && !currentUser.isAdmin
+  const branche = currentUser && !currentUser.hasOverview
     ? currentUser.brancheAutorisee
     : document.getElementById("p_branche").value;
   const box = document.getElementById("appelBox");
@@ -1361,7 +1543,7 @@ function genAppel() {
 async function savePresence() {
   const date = document.getElementById("p_date").value;
   const titre = document.getElementById("p_titre").value.trim();
-  const branche = currentUser.isAdmin
+  const branche = currentUser.hasOverview
     ? document.getElementById("p_branche").value
     : currentUser.brancheAutorisee;
   const resp = document.getElementById("p_resp").value || currentUser.nom;
@@ -1480,6 +1662,10 @@ function printPresence() {
 }
 
 async function delPres(id) {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut supprimer un appel.");
+    return;
+  }
   if (!confirm("Supprimer cet appel ?")) return;
   db.presences = db.presences.filter((p) => p.id !== id);
   await syncCloud(true);
@@ -1516,6 +1702,10 @@ async function saveMateriel() {
 }
 
 async function delMat(id) {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut retirer du matériel.");
+    return;
+  }
   if (!confirm("Retirer cet article de l'inventaire ?")) return;
   db.materiel = db.materiel.filter((m) => m.id !== id);
   await syncCloud(true);
@@ -1528,15 +1718,24 @@ function resetChefForm() {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
+  document.getElementById("c_est_tresorier").checked = false;
 }
 
 async function saveChef() {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut gérer la maîtrise.");
+    return;
+  }
   const id = document.getElementById("c_id").value;
   const nom = document.getElementById("c_nom").value.trim();
   const titre = document.getElementById("c_titre").value;
   const fonction = document.getElementById("c_fonction").value;
   const tel = document.getElementById("c_tel").value.trim();
   const pin = document.getElementById("c_pin").value.trim();
+  const estTresorier =
+    Boolean(document.getElementById("c_est_tresorier").checked) ||
+    fonction.toLowerCase().includes("trésorier") ||
+    fonction.toLowerCase().includes("financier");
 
   if (!nom || !tel || pin.length !== 4) {
     alert("Merci de saisir le nom, le téléphone et un code PIN à 4 chiffres.");
@@ -1551,6 +1750,7 @@ async function saveChef() {
     fonction,
     tel,
     pin,
+    estTresorier,
     cotisation: existing ? Boolean(existing.cotisation) : false
   };
 
@@ -1567,6 +1767,7 @@ async function saveChef() {
 }
 
 function editChef(id) {
+  if (!canManageFullAdmin()) return;
   const c = db.chefs.find((item) => item.id === id);
   if (!c) return;
   document.getElementById("c_id").value = c.id;
@@ -1575,10 +1776,15 @@ function editChef(id) {
   document.getElementById("c_fonction").value = c.fonction || "Chef d'Unité (CU)";
   document.getElementById("c_tel").value = c.tel || "";
   document.getElementById("c_pin").value = c.pin || "";
+  document.getElementById("c_est_tresorier").checked = isChefTresorier(c);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function deleteChef(id) {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut retirer un membre de la maîtrise.");
+    return;
+  }
   if (!confirm("Retirer ce responsable de la maîtrise ?")) return;
   db.chefs = db.chefs.filter((c) => c.id !== id);
   populateLoginSelect();
@@ -1586,11 +1792,19 @@ async function deleteChef(id) {
   renderAll();
 }
 
+function getCotisationAnnuelleChefMontant(chef) {
+  const isCG =
+    chef.titre === "Groupe et ressources adultes" ||
+    chef.fonction === "Chef de Groupe";
+  return isCG ? Number(db.settings.cot_cg || 3000) : Number(db.settings.cot_cu || 2600);
+}
+
 function checkCotisation() {
   const cat = document.getElementById("f_cat").value;
   const linkBox = document.getElementById("f_scout_link");
   const select = document.getElementById("f_scout_select");
-  if (cat === "Cotisation Annuelle") {
+  const matBox = document.getElementById("f_matricule_box");
+  if (cat === "Cotisation Annuelle" || cat === "Cotisation Mensuelle") {
     linkBox.style.display = "block";
     const options = ['<option value="">Sélectionner le membre qui vient de payer...</option>'];
     db.scouts.forEach((s) => {
@@ -1600,18 +1814,61 @@ function checkCotisation() {
       options.push(`<option value="chef:${c.id}">Chef : ${c.nom} (${c.titre})</option>`);
     });
     select.innerHTML = options.join("");
+    matBox.style.display = cat === "Cotisation Annuelle" ? "block" : "none";
   } else {
     linkBox.style.display = "none";
+    matBox.style.display = "none";
   }
 }
 
+async function saveTarifsFinancier() {
+  if (!canManageFinancesAndMatricules()) {
+    alert("Accès réservé au Trésorier / Financier.");
+    return;
+  }
+  db.settings.cot_mens_j = Number(document.getElementById("fin_cot_mens_j").value || 0);
+  db.settings.cot_mens_c = Number(document.getElementById("fin_cot_mens_c").value || 0);
+  await syncCloud(true);
+  renderAll();
+  alert("Cotisations mensuelles enregistrées.");
+}
+
+async function assignScoutMatricule(scoutId) {
+  if (!canManageFinancesAndMatricules()) {
+    alert("Seul le Financier / Trésorier peut attribuer ou modifier un matricule ASCCI.");
+    return;
+  }
+  const scout = db.scouts.find((s) => s.id === scoutId);
+  if (!scout) return;
+  if (!scout.cotisation) {
+    alert("La cotisation annuelle du jeune doit d'abord être payée avant d'attribuer son matricule ASCCI.");
+    return;
+  }
+  const input = document.getElementById("mat_input_" + scoutId);
+  const newMat = input ? input.value.trim() : "";
+  if (!newMat) {
+    alert("Merci de saisir le numéro de matricule ASCCI.");
+    return;
+  }
+
+  db.scouts = db.scouts.map((s) => (s.id === scoutId ? { ...s, mat: newMat } : s));
+  await syncCloud(true);
+  renderAll();
+  alert(`Matricule ASCCI attribué à ${scout.nom} : ${newMat}`);
+}
+
 async function saveFinance() {
+  if (!canManageFinancesAndMatricules()) {
+    alert("Accès réservé au Trésorier / Financier.");
+    return;
+  }
   const type = document.getElementById("f_type").value;
   const cat = document.getElementById("f_cat").value;
   const montant = Number(document.getElementById("f_montant").value || 0);
   const date = document.getElementById("f_date").value || new Date().toISOString().slice(0, 10);
   const motif = document.getElementById("f_motif").value.trim();
   const linked = document.getElementById("f_scout_select").value;
+  const newMat = (document.getElementById("f_new_matricule")?.value || "").trim();
 
   if (!montant || montant <= 0 || !motif) {
     alert("Merci d'indiquer un montant supérieur à 0 et un motif.");
@@ -1630,7 +1887,9 @@ async function saveFinance() {
   if (type === "in" && cat === "Cotisation Annuelle" && linked) {
     const [kind, targetId] = linked.split(":");
     if (kind === "scout") {
-      db.scouts = db.scouts.map((s) => (s.id === targetId ? { ...s, cotisation: true } : s));
+      db.scouts = db.scouts.map((s) =>
+        s.id === targetId ? { ...s, cotisation: true, mat: newMat || s.mat || "" } : s
+      );
     } else if (kind === "chef") {
       db.chefs = db.chefs.map((c) => (c.id === targetId ? { ...c, cotisation: true } : c));
     }
@@ -1638,12 +1897,19 @@ async function saveFinance() {
 
   document.getElementById("f_montant").value = "";
   document.getElementById("f_motif").value = "";
+  if (document.getElementById("f_new_matricule")) {
+    document.getElementById("f_new_matricule").value = "";
+  }
 
   await syncCloud(true);
   renderAll();
 }
 
 async function delFin(id) {
+  if (!canManageFinancesAndMatricules()) {
+    alert("Accès réservé au Trésorier / Financier.");
+    return;
+  }
   if (!confirm("Supprimer cette opération financière ?")) return;
   db.finances = db.finances.filter((f) => f.id !== id);
   await syncCloud(true);
@@ -1651,16 +1917,24 @@ async function delFin(id) {
 }
 
 function printCaisse() {
+  const totalAscci = db.scouts.filter((s) => s.cotisation).length * 2085;
+  const totalGroupePart = db.scouts.filter((s) => s.cotisation).length * 415;
+
   const rows = [...db.finances]
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .map((f) => {
       const sign = f.type === "in" ? "+" : "-";
-      return `<tr><td>${f.date}</td><td>${f.type.toUpperCase()}</td><td>${f.cat}</td><td>${f.motif}</td><td>${sign} ${fPrix(f.montant)}</td></tr>`;
+      const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && Number(f.montant) === 2500;
+      const motifDetail = isCotiJeune
+        ? `${f.motif} <br><small>(Répartition : 2 085 FCFA ASCCI + 415 FCFA Caisse Groupe)</small>`
+        : f.motif;
+      return `<tr><td>${f.date}</td><td>${f.type.toUpperCase()}</td><td>${f.cat}</td><td>${motifDetail}</td><td>${sign} ${fPrix(f.montant)}</td></tr>`;
     });
 
   document.getElementById("printArea").innerHTML = `
     ${renderDocumentHeader("Livre de Caisse", "Bilan financier du groupe")}
     <p>Entrées : ${document.getElementById("f_tot_in").textContent} | Sorties : ${document.getElementById("f_tot_out").textContent} | Solde : ${document.getElementById("f_solde").textContent}</p>
+    <p style="margin-top:6px;"><strong>Ventilation cotisations annuelles jeunes payées :</strong> Part ASCCI : ${fPrix(totalAscci)} | Part Caisse Groupe : ${fPrix(totalGroupePart)}</p>
     <table>
       <thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th></tr></thead>
       <tbody>${rows.join("") || "<tr><td colspan='5'>Aucune opération.</td></tr>"}</tbody>
@@ -1671,14 +1945,21 @@ function printCaisse() {
 }
 
 async function saveSettings() {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut modifier les paramètres généraux.");
+    return;
+  }
   db.settings.cg_nom = document.getElementById("cfg_cg_nom").value.trim() || "Chef de Groupe Obion";
   db.settings.cg_tel = document.getElementById("cfg_cg_tel").value.trim();
   db.settings.logo_app = document.getElementById("cfg_logo_app").value.trim() || "logo-app.jpg";
   db.settings.logo_district = document.getElementById("cfg_logo_district").value.trim() || "logo-district.jpg";
   db.settings.logo_groupe = document.getElementById("cfg_logo_groupe").value.trim() || "logo.jpg";
   db.settings.cachet_actif = Boolean(document.getElementById("cfg_cachet_actif").checked);
-  db.settings.cot_j = Number(document.getElementById("cfg_cot_j").value || 0);
-  db.settings.cot_c = Number(document.getElementById("cfg_cot_c").value || 0);
+  db.settings.cot_j_total = 2500;
+  db.settings.cot_j_ascci = 2085;
+  db.settings.cot_j_groupe = 415;
+  db.settings.cot_cu = Number(document.getElementById("cfg_cot_cu").value || 2600);
+  db.settings.cot_cg = Number(document.getElementById("cfg_cot_cg").value || 3000);
   applyAppAndBrandLogos();
   await syncCloud(true);
   renderAll();
@@ -1686,6 +1967,10 @@ async function saveSettings() {
 }
 
 async function saveProgSettings() {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut modifier les progressions.");
+    return;
+  }
   db.settings.prog = {
     Oisillon: document.getElementById("cfg_prog_oisillon").value.trim(),
     Meute: document.getElementById("cfg_prog_meute").value.trim(),
@@ -1699,6 +1984,10 @@ async function saveProgSettings() {
 }
 
 async function cloturerAnnee() {
+  if (!canManageFullAdmin()) {
+    alert("Seul le Chef de Groupe peut clôturer l'année.");
+    return;
+  }
   if (!confirm("Remettre toutes les cotisations annuelles (jeunes et chefs) à Impayé pour la nouvelle année ?")) return;
   db.scouts = db.scouts.map((s) => ({ ...s, cotisation: false }));
   db.chefs = db.chefs.map((c) => ({ ...c, cotisation: false }));
@@ -1708,15 +1997,15 @@ async function cloturerAnnee() {
 }
 
 function renderSettingsInputs() {
-  if (!currentUser || !currentUser.isAdmin) return;
+  if (!currentUser || !canManageFullAdmin()) return;
   document.getElementById("cfg_cg_nom").value = db.settings.cg_nom || "";
   document.getElementById("cfg_cg_tel").value = db.settings.cg_tel || "";
   document.getElementById("cfg_logo_app").value = db.settings.logo_app || "logo-app.jpg";
   document.getElementById("cfg_logo_district").value = db.settings.logo_district || "logo-district.jpg";
   document.getElementById("cfg_logo_groupe").value = db.settings.logo_groupe || "logo.jpg";
   document.getElementById("cfg_cachet_actif").checked = db.settings.cachet_actif !== false;
-  document.getElementById("cfg_cot_j").value = db.settings.cot_j || 0;
-  document.getElementById("cfg_cot_c").value = db.settings.cot_c || 0;
+  document.getElementById("cfg_cot_cu").value = db.settings.cot_cu || 2600;
+  document.getElementById("cfg_cot_cg").value = db.settings.cot_cg || 3000;
   document.getElementById("cfg_prog_oisillon").value = db.settings.prog.Oisillon || "";
   document.getElementById("cfg_prog_meute").value = db.settings.prog.Meute || "";
   document.getElementById("cfg_prog_troupe").value = db.settings.prog.Troupe || "";
@@ -1728,7 +2017,7 @@ function renderScouts() {
   const listEl = document.getElementById("scoutList");
   if (!listEl || !currentUser) return;
   const q = (document.getElementById("searchScout")?.value || "").toLowerCase().trim();
-  const filterBranche = currentUser.isAdmin
+  const filterBranche = currentUser.hasOverview
     ? (document.getElementById("filterScout")?.value || "Tous")
     : currentUser.brancheAutorisee;
 
@@ -1754,11 +2043,14 @@ function renderScouts() {
   listEl.innerHTML = filtered
     .map((s) => {
       const waBtn = !s.cotisation && s.tel
-        ? `<a href="${getWaLink(s.tel, `Bonjour parent de ${s.nom}, rappel de cotisation annuelle (${fPrix(db.settings.cot_j)}) pour le Groupe Obion.`)}" target="_blank" class="wa-btn">📱 Relancer</a>`
+        ? `<a href="${getWaLink(s.tel, `Bonjour parent de ${s.nom}, rappel de cotisation annuelle de 2 500 FCFA pour le Groupe Obion.`)}" target="_blank" class="wa-btn">📱 Relancer (2 500 FCFA)</a>`
         : "";
       const cotiStatus = s.cotisation
-        ? `<span class="status-dot status-green"></span> Cotisation : À jour`
-        : `<span class="status-dot status-red"></span> Cotisation : Impayé ${waBtn}`;
+        ? `<span class="status-dot status-green"></span> Cotisation annuelle : À jour`
+        : `<span class="status-dot status-red"></span> Cotisation annuelle : Impayé ${waBtn}`;
+      const matDisplay = s.mat
+        ? `<strong>Matricule ASCCI :</strong> ${s.mat}`
+        : `<strong>Matricule ASCCI :</strong> <span style="color:#888;">${s.cotisation ? "En attente d'attribution (Financier)" : "Après paiement annuel"}</span>`;
       const absCount = getAbsenceCountForScout(s.nom, s.branche);
       const parrainLine = s.parrain
         ? `<p><strong>Parrain :</strong> ${s.parrain}${s.parrain_tel ? ` (${s.parrain_tel})` : ""}</p>`
@@ -1768,7 +2060,7 @@ function renderScouts() {
         <div class="item-card ${branchClassMap[s.branche] || ""}">
           <span class="b-badge">${s.branche}</span>
           <h3>${s.nom}</h3>
-          <p><strong>Matricule :</strong> ${s.mat} | <strong>Unité :</strong> ${s.sousunite || "Non précisée"}</p>
+          <p>${matDisplay} | <strong>Unité :</strong> ${s.sousunite || "Non précisée"}</p>
           <p><strong>Parent :</strong> ${s.tel || "-"} | <strong>Sang :</strong> ${s.sang || "Inconnu"}</p>
           ${parrainLine}
           <p><strong>Absences enregistrées :</strong> ${absCount}</p>
@@ -1776,7 +2068,7 @@ function renderScouts() {
           <div class="item-actions no-print">
             <button class="btn btn-edit" onclick="editScout('${s.id}')">✏️ Modifier</button>
             <button class="btn btn-secondary" onclick="openAutoConfig('scout', '${s.id}')">📄 Autorisation</button>
-            <button class="btn btn-danger" onclick="deleteScout('${s.id}')">❌ Supprimer</button>
+            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="deleteScout('${s.id}')">❌ Supprimer</button>` : ""}
           </div>
         </div>
       `;
@@ -1787,7 +2079,7 @@ function renderScouts() {
 function renderPedagogie() {
   const tbody = document.getElementById("pedaList");
   if (!tbody || !currentUser) return;
-  const filterBranche = currentUser.isAdmin
+  const filterBranche = currentUser.hasOverview
     ? (document.getElementById("filterPeda")?.value || "Toutes")
     : currentUser.brancheAutorisee;
 
@@ -1810,7 +2102,7 @@ function renderPedagogie() {
 
       return `
         <tr>
-          <td>${s.mat}</td>
+          <td>${s.mat || "<small style='color:#888;'>En attente</small>"}</td>
           <td><strong>${s.nom}</strong><br><small>${s.branche}</small></td>
           <td>${s.totem || "-"}</td>
           <td style="min-width:150px;">
@@ -1829,7 +2121,7 @@ function renderCamps() {
   const listEl = document.getElementById("campList");
   if (!listEl || !currentUser) return;
   const visibleCamps = db.camps.filter(
-    (c) => currentUser.isAdmin || c.branche === "Toutes" || c.branche === currentUser.brancheAutorisee
+    (c) => currentUser.hasOverview || c.branche === "Toutes" || c.branche === currentUser.brancheAutorisee
   );
 
   if (visibleCamps.length === 0) {
@@ -1853,7 +2145,7 @@ function renderCamps() {
             <button class="btn btn-success" onclick="openCampPart('${c.id}')">👥 Inscrits & Paiements</button>
             <button class="wa-btn" onclick="openWaInfoForCamp('${c.id}')">📱 Informer parents</button>
             <button class="btn btn-secondary" onclick="openAutoConfig('camp', '${c.id}')">📄 Autorisation</button>
-            <button class="btn btn-danger" onclick="deleteCamp('${c.id}')">❌ Supprimer</button>
+            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="deleteCamp('${c.id}')">❌ Supprimer</button>` : ""}
           </div>
         </div>
       `;
@@ -1862,7 +2154,7 @@ function renderCamps() {
 }
 
 function renderChefs() {
-  if (!currentUser || !currentUser.isAdmin) return;
+  if (!currentUser) return;
   const cList = document.getElementById("chefList");
   if (!cList) return;
 
@@ -1873,27 +2165,31 @@ function renderChefs() {
 
   cList.innerHTML = db.chefs
     .map((c) => {
+      const montantAnnuel = getCotisationAnnuelleChefMontant(c);
+      const tresoBadge = isChefTresorier(c) ? " • Trésorier" : "";
       let waBtn = "";
-      if (!c.cotisation && c.tel) {
-        const msg = `Bonjour ${c.nom}, rappel de la maîtrise du Groupe Obion : ta cotisation annuelle (${fPrix(db.settings.cot_c)}) est en attente.`;
-        waBtn = `<a href="${getWaLink(c.tel, msg)}" target="_blank" class="wa-btn">📱 Relancer</a>`;
+      if (!c.cotisation && c.tel && canManageFinancesAndMatricules()) {
+        const msg = `Bonjour ${c.nom}, rappel de la maîtrise du Groupe Obion : ta cotisation annuelle (${fPrix(montantAnnuel)}) est en attente.`;
+        waBtn = `<a href="${getWaLink(c.tel, msg)}" target="_blank" class="wa-btn">📱 Relancer (${fPrix(montantAnnuel)})</a>`;
       }
       const cotiC = c.cotisation
-        ? `<span class="status-dot status-green"></span> Cotisation : À jour`
-        : `<span class="status-dot status-red"></span> Cotisation : Impayé ${waBtn}`;
+        ? `<span class="status-dot status-green"></span> Cotisation annuelle (${fPrix(montantAnnuel)}) : À jour`
+        : `<span class="status-dot status-red"></span> Cotisation annuelle (${fPrix(montantAnnuel)}) : Impayé ${waBtn}`;
 
       return `
         <div class="item-card b-CG">
-          <span class="b-badge" style="background:var(--c-cg);">${c.fonction}</span>
+          <span class="b-badge" style="background:var(--c-cg);">${c.fonction}${tresoBadge}</span>
           <h3>${c.nom}</h3>
           <p><strong>Titre :</strong> ${c.titre}</p>
           <p><strong>Téléphone :</strong> <a href="tel:${c.tel}">${c.tel}</a></p>
           <p style="margin-top:8px;">${cotiC}</p>
-          <p style="color:#e74c3c; margin-top:4px;"><strong>PIN :</strong> ${c.pin}</p>
-          <div class="item-actions no-print">
-            <button class="btn btn-edit" onclick="editChef('${c.id}')">✏️ Éditer</button>
-            <button class="btn btn-danger" onclick="deleteChef('${c.id}')">❌ Retirer</button>
-          </div>
+          ${canManageFullAdmin() ? `<p style="color:#e74c3c; margin-top:4px;"><strong>PIN :</strong> ${c.pin}</p>` : ""}
+          ${canManageFullAdmin() ? `
+            <div class="item-actions no-print">
+              <button class="btn btn-edit" onclick="editChef('${c.id}')">✏️ Éditer</button>
+              <button class="btn btn-danger" onclick="deleteChef('${c.id}')">❌ Retirer</button>
+            </div>
+          ` : ""}
         </div>
       `;
     })
@@ -1905,7 +2201,7 @@ function renderPresences() {
   if (!prList || !currentUser) return;
   const items = [...db.presences]
     .reverse()
-    .filter((p) => currentUser.isAdmin || p.branche === "Toutes" || p.branche === currentUser.brancheAutorisee);
+    .filter((p) => currentUser.hasOverview || p.branche === "Toutes" || p.branche === currentUser.brancheAutorisee);
 
   if (items.length === 0) {
     prList.innerHTML = "<div class='card'><p>Aucun appel enregistré.</p></div>";
@@ -1922,7 +2218,7 @@ function renderPresences() {
           <p>✅ Présents : ${p.presents} / ${p.total}</p>
           <div class="item-actions no-print">
             <button class="btn btn-secondary" onclick="openPresDetails('${p.id}')">📄 Détails & Absents</button>
-            <button class="btn btn-danger" onclick="delPres('${p.id}')">❌</button>
+            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="delPres('${p.id}')">❌</button>` : ""}
           </div>
         </div>
       `
@@ -1930,10 +2226,43 @@ function renderPresences() {
     .join("");
 }
 
+function renderMatriculeAssignTable() {
+  const tbody = document.getElementById("matriculeAssignList");
+  if (!tbody) return;
+
+  if (db.scouts.length === 0) {
+    tbody.innerHTML = "<tr><td colspan='4'>Aucun jeune inscrit.</td></tr>";
+    return;
+  }
+
+  tbody.innerHTML = db.scouts
+    .map((s) => {
+      const statusHtml = s.cotisation
+        ? `<span class="status-dot status-green"></span> Payée (2 500 FCFA)`
+        : `<span class="status-dot status-red"></span> Non payée`;
+      return `
+        <tr>
+          <td><strong>${s.nom}</strong> <small>(${s.branche})</small></td>
+          <td>${statusHtml}</td>
+          <td>
+            <input type="text" id="mat_input_${s.id}" value="${s.mat || ""}" placeholder="${s.cotisation ? "Saisir matricule ASCCI" : "Cotisation requise"}" ${s.cotisation ? "" : "disabled"} style="width:190px;">
+          </td>
+          <td>
+            <button class="btn btn-success" onclick="assignScoutMatricule('${s.id}')" ${s.cotisation ? "" : "disabled"}>Valider matricule</button>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
 function renderFinances() {
-  if (!currentUser || !currentUser.isAdmin) return;
+  if (!currentUser || !canManageFinancesAndMatricules()) return;
   const fList = document.getElementById("financeList");
   if (!fList) return;
+
+  document.getElementById("fin_cot_mens_j").value = db.settings.cot_mens_j || 0;
+  document.getElementById("fin_cot_mens_c").value = db.settings.cot_mens_c || 0;
 
   let tIn = 0;
   let tOut = 0;
@@ -1946,12 +2275,16 @@ function renderFinances() {
       else tOut += amt;
       const cColor = f.type === "in" ? "td-entree" : "td-sortie";
       const sign = f.type === "in" ? "+" : "-";
+      const isCotiJeune = f.type === "in" && f.cat === "Cotisation Annuelle" && amt === 2500;
+      const motifCell = isCotiJeune
+        ? `${f.motif}<br><small style="color:#555;">Part ASCCI : 2 085 FCFA • Part Caisse Groupe : 415 FCFA</small>`
+        : f.motif;
       return `
         <tr>
           <td>${new Date(f.date).toLocaleDateString("fr-FR")}</td>
           <td class="${cColor}">${f.type === "in" ? "Entrée" : "Sortie"}</td>
           <td>${f.cat}</td>
-          <td>${f.motif}</td>
+          <td>${motifCell}</td>
           <td class="${cColor}">${sign} ${fPrix(amt)}</td>
           <td class="no-print"><button class="btn btn-danger" style="padding:4px 8px;" onclick="delFin('${f.id}')">❌</button></td>
         </tr>
@@ -1959,9 +2292,14 @@ function renderFinances() {
     })
     .join("");
 
+  const paidScoutsCount = db.scouts.filter((s) => s.cotisation).length;
   document.getElementById("f_tot_in").textContent = fPrix(tIn);
   document.getElementById("f_tot_out").textContent = fPrix(tOut);
   document.getElementById("f_solde").textContent = fPrix(tIn - tOut);
+  document.getElementById("f_split_coti").innerHTML =
+    `ASCCI : ${fPrix(paidScoutsCount * 2085)}<br>Caisse : ${fPrix(paidScoutsCount * 415)}`;
+
+  renderMatriculeAssignTable();
 }
 
 function renderMateriel() {
@@ -1980,7 +2318,7 @@ function renderMateriel() {
           <p>📦 Qté : ${m.qte} | 🛠️ État : ${m.etat}</p>
           <p>👤 Lieu / Resp : ${m.resp}</p>
           <div class="item-actions no-print">
-            <button class="btn btn-danger" onclick="delMat('${m.id}')">❌ Retirer</button>
+            ${canManageFullAdmin() ? `<button class="btn btn-danger" onclick="delMat('${m.id}')">❌ Retirer</button>` : ""}
           </div>
         </div>
       `
@@ -1993,7 +2331,7 @@ function renderParrains() {
   if (!paList || !currentUser) return;
   const mapP = {};
   db.scouts.forEach((s) => {
-    if (s.parrain && (currentUser.isAdmin || s.branche === currentUser.brancheAutorisee)) {
+    if (s.parrain && (currentUser.hasOverview || s.branche === currentUser.brancheAutorisee)) {
       if (!mapP[s.parrain]) {
         mapP[s.parrain] = { tel: s.parrain_tel || "", scouts: [] };
       } else if (!mapP[s.parrain].tel && s.parrain_tel) {

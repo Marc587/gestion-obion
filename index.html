@@ -87,7 +87,7 @@
         .status-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
         .status-green { background: #27ae60; box-shadow: 0 0 5px #27ae60; }
         .status-red { background: #e74c3c; box-shadow: 0 0 5px #e74c3c; }
-        .wa-btn { background: #25D366; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; }
+        .wa-btn { background: #25D366; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; cursor: pointer; }
 
         .table-responsive { overflow-x: auto; background: white; border-radius: 8px; box-shadow: var(--shadow); }
         table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 0.9rem; }
@@ -149,6 +149,7 @@
 
     <div class="tab-menu no-print">
         <button class="tab-btn active" onclick="nav('dashboard')" id="tab_dashboard">📊 Tableau de bord</button>
+        <button class="tab-btn" onclick="nav('programme')" id="tab_programme">🗓️ Programme annuel</button>
         <button class="tab-btn" onclick="nav('effectifs')" id="tab_effectifs">📋 Effectifs</button>
         <button class="tab-btn" onclick="nav('pedagogie')" id="tab_pedagogie">🎓 Pédagogie</button>
         <button class="tab-btn" onclick="nav('camps')" id="tab_camps">🏕️ Camps & WE</button>
@@ -164,6 +165,85 @@
 
         <div id="sec-dashboard" class="section">
             <div id="dashboardContent"></div>
+        </div>
+
+        <div id="sec-programme" class="section hidden">
+            <div class="card">
+                <h2 class="card-header" id="formTitleProg">🗓️ Ajouter une activité au programme annuel</h2>
+                <input type="hidden" id="prog_id" value="">
+                <div class="grid-form">
+                    <div class="form-group"><label>Titre de l'activité *</label><input type="text" id="prog_titre" placeholder="Ex: Sortie découverte / Camp de Pâques"></div>
+                    <div class="form-group">
+                        <label>Type d'activité *</label>
+                        <select id="prog_type" onchange="toggleProgCampFields()">
+                            <option value="Réunion d'unité">Réunion d'unité</option>
+                            <option value="Sortie">Sortie</option>
+                            <option value="Camp / Week-end">Camp / Week-end (relié aux Camps)</option>
+                            <option value="Cérémonie">Cérémonie / Messe / Promesse</option>
+                            <option value="Service communautaire">Service communautaire</option>
+                            <option value="Conseil de maîtrise">Conseil de maîtrise</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Date de début *</label><input type="date" id="prog_debut"></div>
+                    <div class="form-group"><label>Date de fin (optionnel)</label><input type="date" id="prog_fin"></div>
+                    <div class="form-group"><label>Lieu</label><input type="text" id="prog_lieu" placeholder="Ex: Paroisse / Forêt du Banco"></div>
+                    <div class="form-group">
+                        <label>Branche concernée *</label>
+                        <select id="prog_branche">
+                            <option value="Toutes">Toutes (Groupe)</option>
+                            <option>Oisillon</option>
+                            <option>Meute</option>
+                            <option>Troupe</option>
+                            <option>Chemin</option>
+                            <option>Route</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Statut</label>
+                        <select id="prog_statut">
+                            <option value="À préparer">À préparer</option>
+                            <option value="En préparation">En préparation</option>
+                            <option value="Prêt">Prêt</option>
+                            <option value="Réalisé">Réalisé</option>
+                            <option value="Reporté">Reporté</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="prog_frais_group">
+                        <label>Frais / Quota par jeune (FCFA)</label>
+                        <input type="number" id="prog_frais" value="0" min="0">
+                    </div>
+                    <div class="form-group" style="grid-column: 1/-1;">
+                        <label>Notes / Objectifs à faire à temps</label>
+                        <textarea id="prog_notes" rows="2" placeholder="Points d'attention, budget, matériel, consignes parents..."></textarea>
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;">
+                    <button class="btn btn-main" style="flex:1; margin-top:0; background:#2980b9;" onclick="saveProgrammeItem()">✅ Enregistrer dans le programme</button>
+                    <button class="btn btn-secondary" onclick="resetProgrammeForm()">↺ Réinitialiser</button>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 12px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items:center;">
+                <label style="font-weight:bold;">Filtrer :</label>
+                <select id="filterProgBranche" onchange="renderProgramme()">
+                    <option value="Toutes">Toutes les branches</option>
+                    <option>Oisillon</option>
+                    <option>Meute</option>
+                    <option>Troupe</option>
+                    <option>Chemin</option>
+                    <option>Route</option>
+                </select>
+                <select id="filterProgStatut" onchange="renderProgramme()">
+                    <option value="Tous">Tous les statuts</option>
+                    <option value="À préparer">À préparer</option>
+                    <option value="En préparation">En préparation</option>
+                    <option value="Prêt">Prêt</option>
+                    <option value="Réalisé">Réalisé</option>
+                    <option value="Reporté">Reporté</option>
+                </select>
+            </div>
+
+            <div class="list-grid" id="programmeList"></div>
         </div>
 
         <div id="sec-effectifs" class="section hidden">
@@ -360,6 +440,33 @@
     <div id="printArea"></div>
 </div>
 
+<div class="modal" id="modalProgChecklist">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeM('modalProgChecklist')">&times;</button>
+        <h2 id="mpc_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
+        <p id="mpc_meta" style="color:#666; font-size:0.9rem; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
+        <div id="mpc_tasks" style="display:flex; flex-direction:column; gap:8px; background:#f9f9f9; padding:12px; border-radius:8px;"></div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <input type="text" id="mpc_new_task" placeholder="Nouvelle tâche à faire à temps..." style="flex:1;">
+            <button class="btn btn-secondary" onclick="addChecklistTaskToModal()">+ Ajouter</button>
+        </div>
+        <button class="btn btn-success" style="width:100%; margin-top:15px;" onclick="saveChecklistFromModal()">✅ Enregistrer le suivi</button>
+    </div>
+</div>
+
+<div class="modal" id="modalWaInfo">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeM('modalWaInfo')">&times;</button>
+        <h2 id="mwa_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
+        <p style="color:#666; font-size:0.85rem; margin-bottom:12px;">Modifie le message si besoin, puis clique sur <strong>WhatsApp</strong> pour chaque parent concerné.</p>
+        <div class="form-group" style="margin-bottom:15px;">
+            <label>Message aux parents :</label>
+            <textarea id="mwa_message" rows="4" oninput="refreshWaRecipientsList()"></textarea>
+        </div>
+        <div id="mwa_recipients" style="display:flex; flex-direction:column; gap:8px;"></div>
+    </div>
+</div>
+
 <div class="modal" id="modalPeda">
     <div class="modal-content">
         <button class="close-modal" onclick="closeM('modalPeda')">&times;</button>
@@ -379,8 +486,20 @@
         <h2 id="mpres_titre" style="color:var(--text-main); margin-bottom:5px;"></h2>
         <p id="mpres_date" style="color: #666;"></p>
         <p id="mpres_resp" style="color: #666; margin-bottom: 15px; font-weight: bold; border-bottom:1px solid #eee; padding-bottom:10px;"></p>
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;"><button class="btn btn-success" style="flex:1;" onclick="copyWhatsApp()">📱 Copier Rapport WhatsApp</button><button class="btn btn-secondary" style="flex:1;" onclick="printPresence()">📄 Imprimer Fiche PDF</button></div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;"><div><h4 style="color:#27ae60; border-bottom: 2px solid #eee; padding-bottom:5px;">✅ Présents (<span id="count_p">0</span>)</h4><ul id="list_p" style="list-style:none; margin-top:10px; line-height:1.8;"></ul></div><div><h4 style="color:#e74c3c; border-bottom: 2px solid #eee; padding-bottom:5px;">❌ Absents (<span id="count_a">0</span>)</h4><ul id="list_a" style="list-style:none; margin-top:10px; line-height:1.8;"></ul></div></div>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+            <button class="btn btn-success" style="flex:1;" onclick="copyWhatsApp()">📱 Copier Rapport WhatsApp</button>
+            <button class="btn btn-secondary" style="flex:1;" onclick="printPresence()">📄 Imprimer Fiche PDF</button>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h4 style="color:#27ae60; border-bottom: 2px solid #eee; padding-bottom:5px;">✅ Présents (<span id="count_p">0</span>)</h4>
+                <ul id="list_p" style="list-style:none; margin-top:10px; line-height:1.8;"></ul>
+            </div>
+            <div>
+                <h4 style="color:#e74c3c; border-bottom: 2px solid #eee; padding-bottom:5px;">❌ Absents (<span id="count_a">0</span>)</h4>
+                <ul id="list_a" style="list-style:none; margin-top:10px; line-height:1.8;"></ul>
+            </div>
+        </div>
     </div>
 </div>
 

@@ -20,6 +20,7 @@ const defaultData = {
   scouts: [],
   chefs: [],
   camps: [],
+  programme: [],
   presences: [],
   finances: [],
   materiel: [],
@@ -43,6 +44,9 @@ let currentUser = null;
 let currentPedaScoutId = null;
 let currentPresId = null;
 let currentCampId = null;
+let currentProgChecklistId = null;
+let tempChecklistTasks = [];
+let currentWaBranche = "Toutes";
 let currentAutoTarget = null;
 let currentActiveTab = "dashboard";
 
@@ -65,6 +69,11 @@ function getWaLink(tel, msg) {
   return "https://wa.me/" + fullNumber + "?text=" + encodeURIComponent(msg);
 }
 
+function getSmsLink(tel, msg) {
+  const digits = String(tel || "").replace(/\D/g, "");
+  return "sms:" + digits + "?body=" + encodeURIComponent(msg);
+}
+
 function closeM(id) {
   const modal = document.getElementById(id);
   if (modal) modal.style.display = "none";
@@ -80,6 +89,7 @@ function normalizeDb() {
   db.scouts = Array.isArray(db.scouts) ? db.scouts : [];
   db.chefs = Array.isArray(db.chefs) ? db.chefs : [];
   db.camps = Array.isArray(db.camps) ? db.camps : [];
+  db.programme = Array.isArray(db.programme) ? db.programme : [];
   db.presences = Array.isArray(db.presences) ? db.presences : [];
   db.finances = Array.isArray(db.finances) ? db.finances : [];
   db.materiel = Array.isArray(db.materiel) ? db.materiel : [];
@@ -215,13 +225,13 @@ function applyRolePermissions() {
     }
   });
 
-  if (!currentUser.isAdmin) {
-    ["filterScout", "filterPeda", "camp_branche", "p_branche"].forEach((id) => {
-      const sel = document.getElementById(id);
-      if (sel && currentUser.brancheAutorisee !== "Toutes") {
-        sel.value = currentUser.brancheAutorisee;
+  if (!currentUser.isAdmin && currentUser.brancheAutorisee !== "Toutes") {
+    ["filterScout", "filterPeda", "camp_branche", "p_branche", "prog_branche", "filterProgBranche"].forEach(
+      (id) => {
+        const sel = document.getElementById(id);
+        if (sel) sel.value = currentUser.brancheAutorisee;
       }
-    });
+    );
   }
 }
 
@@ -245,6 +255,344 @@ function nav(sectionName) {
   renderAll();
 }
 
+function getDaysUntil(dateStr) {
+  if (!dateStr) return null;
+  const target = new Date(dateStr + "T00:00:00");
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+}
+
+function getDefaultChecklist(type) {
+  const base = [
+    { label: "Valider le programme / fiche technique", done: false },
+    { label: "Préparer le budget / frais éventuels", done: false },
+    { label: "Informer les parents & recueillir autorisations", done: false },
+    { label: "Vérifier l'intendance / matériel", done: false }
+  ];
+  if (type === "Camp / Week-end") {
+    base.push({ label: "Confirmer l'hébergement & transport", done: false });
+  }
+  return base;
+}
+
+function toggleProgCampFields() {
+  const typeVal = document.getElementById("prog_type").value;
+  const fraisGroup = document.getElementById("prog_frais_group");
+  if (fraisGroup) {
+    fraisGroup.style.display = typeVal === "Camp / Week-end" ? "flex" : "none";
+  }
+}
+
+function resetProgrammeForm() {
+  document.getElementById("prog_id").value = "";
+  document.getElementById("formTitleProg").textContent = "🗓️ Ajouter une activité au programme annuel";
+  document.getElementById("prog_titre").value = "";
+  document.getElementById("prog_type").value = "Réunion d'unité";
+  document.getElementById("prog_debut").value = "";
+  document.getElementById("prog_fin").value = "";
+  document.getElementById("prog_lieu").value = "";
+  document.getElementById("prog_branche").value =
+    currentUser && !currentUser.isAdmin && currentUser.brancheAutorisee !== "Toutes"
+      ? currentUser.brancheAutorisee
+      : "Toutes";
+  document.getElementById("prog_statut").value = "À préparer";
+  document.getElementById("prog_frais").value = "0";
+  document.getElementById("prog_notes").value = "";
+  toggleProgCampFields();
+}
+
+async function saveProgrammeItem() {
+  const id = document.getElementById("prog_id").value;
+  const titre = document.getElementById("prog_titre").value.trim();
+  const type = document.getElementById("prog_type").value;
+  const debut = document.getElementById("prog_debut").value;
+  const fin = document.getElementById("prog_fin").value || debut;
+  const lieu = document.getElementById("prog_lieu").value.trim() || "Saint Bernard d'Adiopodoumé";
+  const branche = currentUser.isAdmin
+    ? document.getElementById("prog_branche").value
+    : currentUser.brancheAutorisee;
+  const statut = document.getElementById("prog_statut").value;
+  const frais = Number(document.getElementById("prog_frais").value || 0);
+  const notes = document.getElementById("prog_notes").value.trim();
+
+  if (!titre || !debut) {
+    alert("Merci d'indiquer au moins le titre et la date de début de l'activité.");
+    return;
+  }
+
+  const existing = id ? db.programme.find((p) => p.id === id) : null;
+  let linkedCampId = existing ? existing.linkedCampId : null;
+
+  if (type === "Camp / Week-end") {
+    if (linkedCampId && db.camps.some((c) => c.id === linkedCampId)) {
+      db.camps = db.camps.map((c) =>
+        c.id === linkedCampId
+          ? { ...c, titre, lieu, debut, fin, branche, frais }
+          : c
+      );
+    } else {
+      linkedCampId = "camp_" + Date.now();
+      db.camps.push({
+        id: linkedCampId,
+        titre,
+        lieu,
+        debut,
+        fin,
+        branche,
+        frais,
+        participants: []
+      });
+    }
+  } else if (linkedCampId) {
+    db.camps = db.camps.filter((c) => c.id !== linkedCampId);
+    linkedCampId = null;
+  }
+
+  const itemData = {
+    id: id || "prog_" + Date.now(),
+    titre,
+    type,
+    debut,
+    fin,
+    lieu,
+    branche,
+    statut,
+    frais,
+    notes,
+    linkedCampId,
+    checklist: existing && Array.isArray(existing.checklist) && existing.checklist.length > 0
+      ? existing.checklist
+      : getDefaultChecklist(type)
+  };
+
+  if (existing) {
+    db.programme = db.programme.map((p) => (p.id === id ? itemData : p));
+  } else {
+    db.programme.push(itemData);
+  }
+
+  resetProgrammeForm();
+  await syncCloud(true);
+  renderAll();
+}
+
+function editProgrammeItem(id) {
+  const item = db.programme.find((p) => p.id === id);
+  if (!item) return;
+  document.getElementById("prog_id").value = item.id;
+  document.getElementById("formTitleProg").textContent = "✏️ Modifier : " + item.titre;
+  document.getElementById("prog_titre").value = item.titre || "";
+  document.getElementById("prog_type").value = item.type || "Réunion d'unité";
+  document.getElementById("prog_debut").value = item.debut || "";
+  document.getElementById("prog_fin").value = item.fin || "";
+  document.getElementById("prog_lieu").value = item.lieu || "";
+  document.getElementById("prog_branche").value = item.branche || "Toutes";
+  document.getElementById("prog_statut").value = item.statut || "À préparer";
+  document.getElementById("prog_frais").value = item.frais || 0;
+  document.getElementById("prog_notes").value = item.notes || "";
+  toggleProgCampFields();
+  nav("programme");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteProgrammeItem(id) {
+  const item = db.programme.find((p) => p.id === id);
+  if (!item) return;
+  if (!confirm("Supprimer cette activité du programme annuel ?")) return;
+  if (item.linkedCampId) {
+    db.camps = db.camps.filter((c) => c.id !== item.linkedCampId);
+  }
+  db.programme = db.programme.filter((p) => p.id !== id);
+  await syncCloud(true);
+  renderAll();
+}
+
+function openProgChecklist(id) {
+  const item = db.programme.find((p) => p.id === id);
+  if (!item) return;
+  currentProgChecklistId = id;
+  tempChecklistTasks = (Array.isArray(item.checklist) && item.checklist.length > 0
+    ? item.checklist
+    : getDefaultChecklist(item.type)
+  ).map((t) => ({ ...t }));
+
+  document.getElementById("mpc_titre").textContent = `Suivi préparation : ${item.titre}`;
+  document.getElementById("mpc_meta").textContent =
+    `${item.type} • ${item.branche} • Date : ${item.debut}`;
+  document.getElementById("mpc_new_task").value = "";
+  renderChecklistModalRows();
+  openM("modalProgChecklist");
+}
+
+function renderChecklistModalRows() {
+  const box = document.getElementById("mpc_tasks");
+  if (!box) return;
+  box.innerHTML = tempChecklistTasks.length === 0
+    ? "<p>Aucune tâche dans cette liste.</p>"
+    : tempChecklistTasks
+        .map((t, idx) => `
+          <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px; background:white; border-radius:6px; border:1px solid #eee;">
+            <span style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTempTask(${idx})">
+              <span style="${t.done ? "text-decoration:line-through; color:#888;" : ""}">${t.label}</span>
+            </span>
+            <button type="button" class="btn btn-danger" style="padding:3px 7px; font-size:0.75rem;" onclick="removeTempTask(${idx})">&times;</button>
+          </label>
+        `)
+        .join("");
+}
+
+function toggleTempTask(idx) {
+  if (!tempChecklistTasks[idx]) return;
+  tempChecklistTasks[idx].done = !tempChecklistTasks[idx].done;
+  renderChecklistModalRows();
+}
+
+function removeTempTask(idx) {
+  tempChecklistTasks.splice(idx, 1);
+  renderChecklistModalRows();
+}
+
+function addChecklistTaskToModal() {
+  const input = document.getElementById("mpc_new_task");
+  const label = input.value.trim();
+  if (!label) return;
+  tempChecklistTasks.push({ label, done: false });
+  input.value = "";
+  renderChecklistModalRows();
+}
+
+async function saveChecklistFromModal() {
+  if (!currentProgChecklistId) return;
+  db.programme = db.programme.map((p) => {
+    if (p.id !== currentProgChecklistId) return p;
+    const allDone = tempChecklistTasks.length > 0 && tempChecklistTasks.every((t) => t.done);
+    const nextStatut = allDone && p.statut === "À préparer" ? "Prêt" : p.statut;
+    return {
+      ...p,
+      checklist: tempChecklistTasks.map((t) => ({ ...t })),
+      statut: nextStatut
+    };
+  });
+  closeM("modalProgChecklist");
+  await syncCloud(true);
+  renderAll();
+}
+
+function openWaInfoForProgramme(progId) {
+  const item = db.programme.find((p) => p.id === progId);
+  if (!item) return;
+  currentWaBranche = item.branche || "Toutes";
+  const fraisTxt = item.type === "Camp / Week-end" && Number(item.frais || 0) > 0
+    ? `\nParticipation : ${fPrix(item.frais)}`
+    : "";
+  const datesTxt = item.fin && item.fin !== item.debut
+    ? `du ${item.debut} au ${item.fin}`
+    : `le ${item.debut}`;
+
+  document.getElementById("mwa_titre").textContent = `📱 Informer les parents — ${item.titre}`;
+  document.getElementById("mwa_message").value =
+    `Bonjour chers parents, le Groupe OBION vous informe de l'activité « ${item.titre} » (${item.branche}) prévue ${datesTxt} à ${item.lieu}.${fraisTxt} Merci de votre accompagnement.`;
+  refreshWaRecipientsList();
+  openM("modalWaInfo");
+}
+
+function openWaInfoForCamp(campId) {
+  const camp = db.camps.find((c) => c.id === campId);
+  if (!camp) return;
+  currentWaBranche = camp.branche || "Toutes";
+  const fraisTxt = Number(camp.frais || 0) > 0 ? `\nFrais : ${fPrix(camp.frais)}` : "";
+  document.getElementById("mwa_titre").textContent = `📱 Informer les parents — ${camp.titre}`;
+  document.getElementById("mwa_message").value =
+    `Bonjour chers parents, le camp « ${camp.titre} » (${camp.branche}) aura lieu à ${camp.lieu} du ${camp.debut} au ${camp.fin}.${fraisTxt} N'oubliez pas l'autorisation parentale.`;
+  refreshWaRecipientsList();
+  openM("modalWaInfo");
+}
+
+function refreshWaRecipientsList() {
+  const container = document.getElementById("mwa_recipients");
+  if (!container) return;
+  const msg = document.getElementById("mwa_message").value;
+  const targets = db.scouts.filter(
+    (s) => currentWaBranche === "Toutes" || s.branche === currentWaBranche
+  );
+
+  if (targets.length === 0) {
+    container.innerHTML = "<p>Aucun jeune trouvé dans cette branche.</p>";
+    return;
+  }
+
+  container.innerHTML = targets
+    .map((s) => {
+      if (!s.tel) {
+        return `<div style="padding:8px; border:1px solid #eee; border-radius:6px; display:flex; justify-content:space-between; align-items:center;"><span><strong>${s.nom}</strong> <small>(${s.branche})</small></span><small style="color:#888;">Pas de téléphone</small></div>`;
+      }
+      const waUrl = getWaLink(s.tel, msg);
+      return `<div style="padding:8px; border:1px solid #eee; border-radius:6px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;"><span><strong>${s.nom}</strong> <small>(${s.branche} • ${s.tel})</small></span><a href="${waUrl}" target="_blank" class="wa-btn">📱 WhatsApp</a></div>`;
+    })
+    .join("");
+}
+
+function renderProgramme() {
+  const listEl = document.getElementById("programmeList");
+  if (!listEl || !currentUser) return;
+
+  const filterBranche = currentUser.isAdmin
+    ? (document.getElementById("filterProgBranche")?.value || "Toutes")
+    : currentUser.brancheAutorisee;
+  const filterStatut = document.getElementById("filterProgStatut")?.value || "Tous";
+
+  const items = [...db.programme]
+    .filter((p) => {
+      const okB = filterBranche === "Toutes" || p.branche === "Toutes" || p.branche === filterBranche;
+      const okS = filterStatut === "Tous" || p.statut === filterStatut;
+      return okB && okS;
+    })
+    .sort((a, b) => String(a.debut || "").localeCompare(String(b.debut || "")));
+
+  if (items.length === 0) {
+    listEl.innerHTML = "<div class='card'><p>Aucune activité enregistrée dans le programme annuel.</p></div>";
+    return;
+  }
+
+  listEl.innerHTML = items
+    .map((p) => {
+      const tasks = Array.isArray(p.checklist) ? p.checklist : [];
+      const doneCount = tasks.filter((t) => t.done).length;
+      const pct = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
+      const daysLeft = getDaysUntil(p.debut);
+      let urgencyHtml = "";
+      if (daysLeft !== null && p.statut !== "Réalisé") {
+        if (daysLeft < 0) urgencyHtml = `<span style="color:#c0392b; font-weight:bold;">• Date passée (${Math.abs(daysLeft)} j)</span>`;
+        else if (daysLeft <= 14) urgencyHtml = `<span style="color:#d35400; font-weight:bold;">• Dans ${daysLeft} j (Vérifier préparatifs)</span>`;
+        else urgencyHtml = `<span>• Dans ${daysLeft} j</span>`;
+      }
+
+      return `
+        <div class="item-card" style="border-left-color:#2980b9;">
+          <span class="b-badge" style="background:#2980b9;">${p.branche}</span>
+          <h3>${p.titre}</h3>
+          <p><strong>Type :</strong> ${p.type} | <strong>Statut :</strong> <strong>${p.statut}</strong></p>
+          <p>📅 ${p.debut}${p.fin && p.fin !== p.debut ? " au " + p.fin : ""} • 📍 ${p.lieu || "-"} ${urgencyHtml}</p>
+          ${p.type === "Camp / Week-end" ? `<p>🏕️ Relié aux Camps • Frais : ${fPrix(p.frais)}</p>` : ""}
+          ${p.notes ? `<p style="font-style:italic; color:#444;">📝 ${p.notes}</p>` : ""}
+          <div style="margin-top:8px;">
+            <small>Préparation : ${pct}% (${doneCount}/${tasks.length} tâche(s))</small>
+            <div class="progress-bg"><div class="progress-bar" style="width:${pct}%; background:${pct === 100 ? "#27ae60" : "#e67e22"};"></div></div>
+          </div>
+          <div class="item-actions no-print">
+            <button class="btn btn-success" onclick="openProgChecklist('${p.id}')">✓ Suivi tâches</button>
+            <button class="wa-btn" onclick="openWaInfoForProgramme('${p.id}')">📱 Informer parents</button>
+            <button class="btn btn-edit" onclick="editProgrammeItem('${p.id}')">✏️ Éditer</button>
+            <button class="btn btn-danger" onclick="deleteProgrammeItem('${p.id}')">❌</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 function renderDashboard() {
   const container = document.getElementById("dashboardContent");
   if (!container || !currentUser) return;
@@ -259,6 +607,21 @@ function renderDashboard() {
     .filter((f) => f.type === "out")
     .reduce((sum, f) => sum + Number(f.montant || 0), 0);
   const soldeCaisse = totalEntrees - totalSorties;
+
+  const upcomingItems = [...db.programme]
+    .filter((p) => p.statut !== "Réalisé" && p.statut !== "Reporté")
+    .sort((a, b) => String(a.debut || "").localeCompare(String(b.debut || "")))
+    .slice(0, 4);
+
+  const upcomingHtml = upcomingItems.length === 0
+    ? "<p style='color:#666;'>Aucune activité à venir dans le programme.</p>"
+    : upcomingItems
+        .map((p) => {
+          const tasks = Array.isArray(p.checklist) ? p.checklist : [];
+          const done = tasks.filter((t) => t.done).length;
+          return `<div style="padding:8px 0; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;"><span><strong>${p.debut}</strong> — ${p.titre} <small>(${p.branche})</small></span><small style="color:#d35400; font-weight:bold;">${p.statut} • ${done}/${tasks.length} tâches</small></div>`;
+        })
+        .join("");
 
   if (role === "cg") {
     const jeunesAJour = db.scouts.filter((s) => s.cotisation).length;
@@ -291,21 +654,26 @@ function renderDashboard() {
             <small>Entrées : ${fPrix(totalEntrees)} • Sorties : ${fPrix(totalSorties)}</small>
           </div>
           <div class="card" style="margin-bottom:0; text-align:center;">
-            <small>Camps & Appels</small>
-            <h2 style="color:#d35400; margin-top:5px;">${db.camps.length} / ${db.presences.length}</h2>
-            <small>Camps planifiés / Appels saisis</small>
+            <small>Programme & Camps</small>
+            <h2 style="color:#2980b9; margin-top:5px;">${db.programme.length} / ${db.camps.length}</h2>
+            <small>Activités annuelles / Camps</small>
           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-header">🗓️ Prochaines échéances & préparation</h3>
+        ${upcomingHtml}
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;">
+          <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Ouvrir le programme annuel</button>
+          <button class="btn btn-warning" onclick="nav('finances')">Voir la caisse</button>
+          <button class="btn btn-secondary" onclick="nav('effectifs')">Effectifs</button>
         </div>
       </div>
 
       <div class="card">
         <h3 class="card-header">⚜️ Répartition par branche</h3>
         <div class="grid-form">${parBrancheHtml}</div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
-          <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="nav('effectifs')">Gérer les effectifs</button>
-          <button class="btn btn-warning" onclick="nav('finances')">Voir la caisse</button>
-          <button class="btn btn-secondary" onclick="nav('maitrise')">Gérer la maîtrise</button>
-        </div>
       </div>
     `;
     return;
@@ -345,6 +713,7 @@ function renderDashboard() {
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
           <button class="btn btn-warning" onclick="nav('finances')">Saisir une opération / Livre de caisse</button>
           <button class="btn btn-secondary" onclick="nav('camps')">Suivre les paiements de camps</button>
+          <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Voir le programme & budgets</button>
         </div>
       </div>
     `;
@@ -376,7 +745,7 @@ function renderDashboard() {
   container.innerHTML = `
     <div class="card" style="border-left: 5px solid #3498db;">
       <h2 class="card-header">🏕️ Tableau de bord — Chef d'Unité (${maBranche})</h2>
-      <p style="color:#555; margin-bottom:15px;">Suivi quotidien de votre unité : effectifs, progression pédagogique et appels.</p>
+      <p style="color:#555; margin-bottom:15px;">Suivi quotidien de votre unité : effectifs, progression pédagogique, programme et appels.</p>
       <div class="grid-form">
         <div class="card" style="margin-bottom:0; text-align:center;">
           <small>Jeunes de l'unité</small>
@@ -395,8 +764,9 @@ function renderDashboard() {
         </div>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;">
-        <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="nav('effectifs')">Effectifs de l'unité</button>
-        <button class="btn btn-success" onclick="nav('pedagogie')">Progression pédagogique</button>
+        <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="nav('programme')">Programme de l'unité</button>
+        <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="nav('effectifs')">Effectifs</button>
+        <button class="btn btn-success" onclick="nav('pedagogie')">Pédagogie</button>
         <button class="btn btn-secondary" onclick="nav('presences')">Faire l'appel</button>
       </div>
     </div>
@@ -678,8 +1048,9 @@ async function saveCamp() {
     return;
   }
 
+  const campId = "camp_" + Date.now();
   db.camps.push({
-    id: "camp_" + Date.now(),
+    id: campId,
     titre,
     lieu,
     debut,
@@ -687,6 +1058,21 @@ async function saveCamp() {
     branche,
     frais,
     participants: []
+  });
+
+  db.programme.push({
+    id: "prog_" + Date.now(),
+    titre,
+    type: "Camp / Week-end",
+    debut,
+    fin,
+    lieu,
+    branche,
+    statut: "À préparer",
+    frais,
+    notes: "Créé depuis Camps & WE",
+    linkedCampId: campId,
+    checklist: getDefaultChecklist("Camp / Week-end")
   });
 
   document.getElementById("camp_titre").value = "";
@@ -755,6 +1141,7 @@ async function saveCampPart() {
 async function deleteCamp(campId) {
   if (!confirm("Supprimer ce camp / week-end ?")) return;
   db.camps = db.camps.filter((c) => c.id !== campId);
+  db.programme = db.programme.filter((p) => p.linkedCampId !== campId);
   await syncCloud(true);
   renderAll();
 }
@@ -826,6 +1213,16 @@ async function savePresence() {
   renderAll();
 }
 
+function buildAbsentParentMessage(scout, presence) {
+  const dateFr = presence && presence.date
+    ? new Date(presence.date).toLocaleDateString("fr-FR")
+    : "";
+  const titre = (presence && presence.titre) || "l'activité scoute";
+  const branche = (presence && presence.branche) || (scout && scout.branche) || "";
+  const resp = (presence && presence.resp) || "la maîtrise";
+  return `Bonjour parent de ${scout.nom}, nous avons noté son absence à « ${titre} » (${branche})${dateFr ? " du " + dateFr : ""}. Tout va bien ? Cordialement, ${resp} — Groupe OBION.`;
+}
+
 function openPresDetails(id) {
   const p = db.presences.find((item) => item.id === id);
   if (!p) return;
@@ -839,7 +1236,36 @@ function openPresDetails(id) {
   document.getElementById("count_p").textContent = pList.length;
   document.getElementById("count_a").textContent = aList.length;
   document.getElementById("list_p").innerHTML = pList.map((n) => `<li>• ${n}</li>`).join("") || "<li>Aucun</li>";
-  document.getElementById("list_a").innerHTML = aList.map((n) => `<li>• ${n}</li>`).join("") || "<li>Aucun</li>";
+
+  if (aList.length === 0) {
+    document.getElementById("list_a").innerHTML = "<li>Aucun absent</li>";
+  } else {
+    document.getElementById("list_a").innerHTML = aList
+      .map((nomAbsent) => {
+        const scout =
+          db.scouts.find((s) => s.nom === nomAbsent && (p.branche === "Toutes" || s.branche === p.branche)) ||
+          db.scouts.find((s) => s.nom === nomAbsent);
+
+        if (!scout || !scout.tel) {
+          return `<li style="margin-bottom:8px;">• ${nomAbsent} <small style="color:#888;">(Pas de n° parent)</small></li>`;
+        }
+
+        const msg = buildAbsentParentMessage(scout, p);
+        const waUrl = getWaLink(scout.tel, msg);
+        const smsUrl = getSmsLink(scout.tel, msg);
+
+        return `
+          <li style="margin-bottom:10px; padding-bottom:8px; border-bottom:1px dashed #eee;">
+            <div><strong>${scout.nom}</strong> <small>(${scout.tel})</small></div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+              <a href="${waUrl}" target="_blank" class="wa-btn">📱 WhatsApp</a>
+              <a href="${smsUrl}" class="btn btn-secondary" style="padding:3px 8px; border-radius:12px; font-size:0.75rem;">✉️ SMS</a>
+            </div>
+          </li>
+        `;
+      })
+      .join("");
+  }
 
   openM("modalPresDetails");
 }
@@ -1220,6 +1646,7 @@ function renderCamps() {
           <p><strong>Encaissé :</strong> ${fPrix(totalPaye)}</p>
           <div class="item-actions no-print">
             <button class="btn btn-success" onclick="openCampPart('${c.id}')">👥 Inscrits & Paiements</button>
+            <button class="wa-btn" onclick="openWaInfoForCamp('${c.id}')">📱 Informer parents</button>
             <button class="btn btn-secondary" onclick="openAutoConfig('camp', '${c.id}')">📄 Autorisation</button>
             <button class="btn btn-danger" onclick="deleteCamp('${c.id}')">❌ Supprimer</button>
           </div>
@@ -1289,7 +1716,7 @@ function renderPresences() {
           <p>📅 ${new Date(p.date).toLocaleDateString("fr-FR")} | 👨‍✈️ ${p.resp}</p>
           <p>✅ Présents : ${p.presents} / ${p.total}</p>
           <div class="item-actions no-print">
-            <button class="btn btn-secondary" onclick="openPresDetails('${p.id}')">📄 Détails & Rapports</button>
+            <button class="btn btn-secondary" onclick="openPresDetails('${p.id}')">📄 Détails & Absents</button>
             <button class="btn btn-danger" onclick="delPres('${p.id}')">❌</button>
           </div>
         </div>
@@ -1390,6 +1817,7 @@ function renderParrains() {
 function renderAll() {
   if (!currentUser) return;
   renderDashboard();
+  renderProgramme();
   renderScouts();
   renderPedagogie();
   renderCamps();
@@ -1403,6 +1831,7 @@ function renderAll() {
 
 function finishInitUI() {
   populateLoginSelect();
+  toggleProgCampFields();
   const loader = document.getElementById("loaderScreen");
   if (loader) loader.style.display = "none";
 

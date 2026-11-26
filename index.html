@@ -101,20 +101,26 @@
         .modal-content { background: white; padding: 25px; border-radius: 12px; width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto; position: relative; }
         .close-modal { position: absolute; top: 15px; right: 15px; font-size: 1.5rem; cursor: pointer; border: none; background: none; color: #888; }
 
-        .doc-header-logos { display: flex; justify-content: space-between; align-items: center; gap: 15px; border-bottom: 2px solid #0a1f44; padding-bottom: 12px; margin-bottom: 18px; }
-        .doc-logo { width: 75px; height: 75px; object-fit: contain; }
+        .doc-header-logos { display: flex; justify-content: space-between; align-items: center; gap: 15px; border-bottom: 2px solid #0a1f44; padding-bottom: 10px; margin-bottom: 14px; }
+        .doc-logo { width: 70px; height: 70px; object-fit: contain; }
         .doc-header-center { text-align: center; flex: 1; }
-        .cachet-cg { margin-top: 28px; display: inline-block; border: 2.5px solid #0a1f44; border-radius: 10px; padding: 12px 18px; background: #fafbfd; color: #0a1f44; min-width: 260px; transform: rotate(-1.5deg); }
-        .cachet-cg strong { display: block; font-size: 0.95rem; text-transform: uppercase; color: #8e44ad; }
-        .cachet-cg small { display: block; font-size: 0.8rem; color: #333; margin-top: 3px; }
+        .doc-header-center h2 { font-size: 1.35rem; color: #0a1f44; margin-bottom: 2px; }
+        .doc-header-center p { font-size: 0.85rem; color: #444; }
+
+        .cachet-cg { margin-top: 18px; display: inline-block; border: 2px solid #0a1f44; border-radius: 8px; padding: 10px 16px; background: #fafbfd; color: #0a1f44; min-width: 260px; }
+        .cachet-cg strong { display: block; font-size: 0.9rem; text-transform: uppercase; color: #8e44ad; }
+        .cachet-cg small { display: block; font-size: 0.78rem; color: #333; margin-top: 2px; }
 
         @media print {
+            @page { margin: 10mm; }
+            body { padding-bottom: 0; background: white; }
             body * { visibility: hidden; }
             #printArea, #printArea * { visibility: visible; }
-            #printArea { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; background: white; }
+            #printArea { position: absolute; left: 0; top: 0; width: 100%; padding: 0; background: white; }
             .no-print { display: none !important; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-            th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+            th, td { border: 1px solid #000; padding: 6px; text-align: left; }
+            .cachet-cg { page-break-inside: avoid; }
         }
     </style>
 </head>
@@ -165,9 +171,9 @@
         <button class="tab-btn" onclick="nav('presences')" id="tab_presences">📅 Appels</button>
         <button class="tab-btn" onclick="nav('materiel')" id="tab_materiel">⛺ Intendance</button>
         <button class="tab-btn" onclick="nav('parrains')" id="tab_parrains">🤝 Parrains</button>
-        <button class="tab-btn admin-only" onclick="nav('maitrise')" id="tab_maitrise">👔 Maîtrise</button>
-        <button class="tab-btn admin-only" onclick="nav('finances')" id="tab_finances">💰 Finances</button>
-        <button class="tab-btn admin-only" onclick="nav('parametres')" id="tab_parametres">⚙️ Paramètres</button>
+        <button class="tab-btn" onclick="nav('maitrise')" id="tab_maitrise">👔 Maîtrise</button>
+        <button class="tab-btn" onclick="nav('finances')" id="tab_finances">💰 Finances</button>
+        <button class="tab-btn" onclick="nav('parametres')" id="tab_parametres">⚙️ Paramètres</button>
     </div>
 
     <div class="container no-print">
@@ -232,31 +238,34 @@
                 </div>
             </div>
 
-            <div class="card" style="padding: 12px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items:center;">
-                <label style="font-weight:bold;">Filtrer :</label>
-                <select id="filterProgBranche" onchange="renderProgramme()">
-                    <option value="Toutes">Toutes les branches</option>
-                    <option>Oisillon</option>
-                    <option>Meute</option>
-                    <option>Troupe</option>
-                    <option>Chemin</option>
-                    <option>Route</option>
-                </select>
-                <select id="filterProgStatut" onchange="renderProgramme()">
-                    <option value="Tous">Tous les statuts</option>
-                    <option value="À préparer">À préparer</option>
-                    <option value="En préparation">En préparation</option>
-                    <option value="Prêt">Prêt</option>
-                    <option value="Réalisé">Réalisé</option>
-                    <option value="Reporté">Reporté</option>
-                </select>
+            <div class="card" style="padding: 12px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content:space-between;">
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                    <label style="font-weight:bold;">Filtrer :</label>
+                    <select id="filterProgBranche" onchange="renderProgramme()">
+                        <option value="Toutes">Toutes les branches</option>
+                        <option>Oisillon</option>
+                        <option>Meute</option>
+                        <option>Troupe</option>
+                        <option>Chemin</option>
+                        <option>Route</option>
+                    </select>
+                    <select id="filterProgStatut" onchange="renderProgramme()">
+                        <option value="Tous">Tous les statuts</option>
+                        <option value="À préparer">À préparer</option>
+                        <option value="En préparation">En préparation</option>
+                        <option value="Prêt">Prêt</option>
+                        <option value="Réalisé">Réalisé</option>
+                        <option value="Reporté">Reporté</option>
+                    </select>
+                </div>
+                <button class="btn btn-secondary" onclick="printProgramme()">🖨️ Imprimer le programme annuel</button>
             </div>
 
             <div class="list-grid" id="programmeList"></div>
         </div>
 
         <div id="sec-effectifs" class="section hidden">
-            <div class="card admin-only" style="background: #e8f5e9; border-left: 5px solid #27ae60;">
+            <div class="card" id="csvEffectifsCard" style="background: #e8f5e9; border-left: 5px solid #27ae60;">
                 <h3 style="color: #27ae60; font-size: 1.1rem; margin-bottom: 5px;">📥 Importation & Exportation (CSV)</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="btn btn-secondary" onclick="downloadCsvTemplate()">1. Télécharger le modèle</button>
@@ -268,9 +277,11 @@
 
             <div class="card">
                 <h2 class="card-header" id="formTitleScout">➕ Inscrire un jeune</h2>
+                <p style="font-size:0.85rem; color:#555; margin-bottom:12px;">
+                    ℹ️ Aucun matricule temporaire ou interne : le <strong>matricule ASCCI</strong> est attribué par le <strong>Financier / Trésorier</strong> après paiement de la cotisation annuelle (2 500 FCFA : 2 085 FCFA ASCCI + 415 FCFA caisse groupe).
+                </p>
                 <input type="hidden" id="s_id" value="">
                 <div class="grid-form">
-                    <div class="form-group"><label>Matricule *</label><input type="text" id="s_mat"></div>
                     <div class="form-group"><label>Nom complet *</label><input type="text" id="s_nom"></div>
                     <div class="form-group"><label>Date de Naissance *</label><input type="date" id="s_ddn" onchange="autoBranch()">
                         <span id="s_age_hint" style="color:var(--c-troupe); font-weight:bold; font-size:0.8rem;"></span>
@@ -291,7 +302,7 @@
 
             <div class="card" style="padding: 10px 20px; display: flex; gap: 10px; flex-wrap: wrap;">
                 <input type="text" id="searchScout" placeholder="🔍 Rechercher un nom..." style="flex:1" oninput="renderScouts()">
-                <select id="filterScout" onchange="renderScouts()" class="admin-only"><option value="Tous">Toutes les branches</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select>
+                <select id="filterScout" onchange="renderScouts()"><option value="Tous">Toutes les branches</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select>
             </div>
             <div class="list-grid" id="scoutList"></div>
         </div>
@@ -300,10 +311,10 @@
             <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-bottom: 2px solid #eee; padding-bottom:10px; margin-bottom: 15px;">
                     <h2 style="font-size: 1.2rem; color: var(--text-main);">🎓 Tableau de Bord Pédagogique</h2>
-                    <button class="btn btn-warning admin-only" onclick="generateCommandes()">🛒 Commande d'Insignes</button>
+                    <button class="btn btn-warning" id="btnCmdInsignes" onclick="generateCommandes()">🛒 Commande d'Insignes</button>
                 </div>
 
-                <div style="margin-bottom: 15px;" class="admin-only">
+                <div style="margin-bottom: 15px;">
                     <label style="font-weight:bold;">Filtrer par branche : </label>
                     <select id="filterPeda" onchange="renderPedagogie()" style="padding: 8px; border-radius: 5px;">
                         <option value="Toutes">Vue Globale</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option>
@@ -311,7 +322,7 @@
                 </div>
                 <div class="table-responsive">
                     <table id="tablePeda">
-                        <thead><tr><th>Matricule</th><th>Nom & Unité</th><th>Totem</th><th>Progression Globale</th><th>Objectif (En route vers)</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Matricule ASCCI</th><th>Nom & Unité</th><th>Totem</th><th>Progression Globale</th><th>Objectif (En route vers)</th><th>Action</th></tr></thead>
                         <tbody id="pedaList"></tbody>
                     </table>
                 </div>
@@ -326,7 +337,7 @@
                     <div class="form-group"><label>Lieu *</label><input type="text" id="camp_lieu"></div>
                     <div class="form-group"><label>Date de Début *</label><input type="date" id="camp_debut"></div>
                     <div class="form-group"><label>Date de Fin *</label><input type="date" id="camp_fin"></div>
-                    <div class="form-group admin-only"><label>Branche *</label><select id="camp_branche"><option value="Toutes">Toutes (Camp de Groupe)</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
+                    <div class="form-group"><label>Branche *</label><select id="camp_branche"><option value="Toutes">Toutes (Camp de Groupe)</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
                     <div class="form-group"><label>Frais par jeune (FCFA) *</label><input type="number" id="camp_frais" value="0"></div>
                 </div>
                 <button class="btn btn-main" style="background:#d35400;" onclick="saveCamp()">✅ Créer / Sauvegarder le Camp</button>
@@ -340,7 +351,7 @@
                 <div class="grid-form">
                     <div class="form-group"><label>Date *</label><input type="date" id="p_date"></div>
                     <div class="form-group"><label>Titre de l'activité *</label><input type="text" id="p_titre"></div>
-                    <div class="form-group admin-only"><label>Branche convoquée *</label><select id="p_branche" onchange="genAppel()"><option value="">Sélectionner...</option><option value="Toutes">Tout le groupe</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
+                    <div class="form-group"><label>Branche convoquée *</label><select id="p_branche" onchange="genAppel()"><option value="">Sélectionner...</option><option value="Toutes">Tout le groupe</option><option>Oisillon</option><option>Meute</option><option>Troupe</option><option>Chemin</option><option>Route</option></select></div>
                     <div class="form-group"><label>Chef Responsable *</label><input type="text" id="p_resp" readonly style="background:#eee; font-weight:bold;"></div>
                 </div>
                 <button class="btn btn-secondary" style="margin-top:15px;" onclick="genAppel()">Lister les scouts pour l'appel</button>
@@ -372,44 +383,82 @@
             <div class="list-grid" id="parrainList"></div>
         </div>
 
-        <div id="sec-maitrise" class="section hidden admin-only">
-            <div class="card">
+        <div id="sec-maitrise" class="section hidden">
+            <div class="card" id="maitriseFormCard">
                 <h2 class="card-header">👔 Gérer la Maîtrise</h2>
                 <input type="hidden" id="c_id" value="">
                 <div class="grid-form">
                     <div class="form-group"><label>Nom complet *</label><input type="text" id="c_nom"></div>
-                    <div class="form-group"><label>Titre (Branche) *</label><select id="c_titre"><option>Micou</option><option>Akela</option><option>Chef de Troupe</option><option>Safouin</option><option>Coordinateur</option><option>Groupe et ressources adultes</option></select></div>
-                    <div class="form-group"><label>Fonction / Grade *</label><select id="c_fonction"><option>Chef d'Unité (CU)</option><option>Chef d'Unité Adjoint (CUA)</option><option>Assistant Chef d'Unité (ACU)</option><option>Membre du Comité</option><option>Financier / Trésorier</option></select></div>
+                    <div class="form-group"><label>Titre (Branche / Direction) *</label><select id="c_titre"><option>Micou</option><option>Akela</option><option>Chef de Troupe</option><option>Safouin</option><option>Chef de Groupe Adjoint</option><option>Coordinateur</option><option>Groupe et ressources adultes</option></select></div>
+                    <div class="form-group"><label>Fonction / Grade *</label><select id="c_fonction"><option>Chef d'Unité (CU)</option><option>Chef d'Unité Adjoint (CUA)</option><option>Assistant Chef d'Unité (ACU)</option><option>Trésorier / Financier</option><option>Membre du Comité</option></select></div>
                     <div class="form-group"><label>Téléphone *</label><input type="tel" id="c_tel"></div>
                     <div class="form-group"><label>Code PIN (4 chiffres) *</label><input type="password" id="c_pin" maxlength="4" placeholder="Ex: 1234"></div>
+                    <div class="form-group" style="justify-content:center;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-main);">
+                            <input type="checkbox" id="c_est_tresorier">
+                            Nommer comme Trésorier (peut être un CU ou le CG)
+                        </label>
+                    </div>
                 </div>
                 <button class="btn btn-main" style="background:var(--c-cg);" onclick="saveChef()">✅ Enregistrer le Responsable</button>
             </div>
             <div class="list-grid" id="chefList"></div>
         </div>
 
-        <div id="sec-finances" class="section hidden admin-only">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">
+        <div id="sec-finances" class="section hidden">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 15px; margin-bottom: 20px;">
                 <div class="card" style="text-align:center; border-bottom: 4px solid #27ae60;"><h4>Entrées</h4><h2 style="color:#27ae60;" id="f_tot_in">0</h2></div>
                 <div class="card" style="text-align:center; border-bottom: 4px solid #c0392b;"><h4>Sorties</h4><h2 style="color:#c0392b;" id="f_tot_out">0</h2></div>
                 <div class="card" style="text-align:center; border-bottom: 4px solid var(--text-main);"><h4>Solde Caisse</h4><h2 style="color:var(--text-main);" id="f_solde">0</h2></div>
+                <div class="card" style="text-align:center; border-bottom: 4px solid #2980b9;"><h4>Part ASCCI / Caisse Groupe</h4><p id="f_split_coti" style="font-size:0.9rem; margin-top:6px; font-weight:bold;">ASCCI : 0 FCFA<br>Caisse : 0 FCFA</p></div>
             </div>
+
+            <div class="card" style="border-left: 5px solid #2980b9;">
+                <h2 class="card-header">💳 Tarifs des Cotisations (Fixés par le Financier / Trésorier)</h2>
+                <div class="grid-form">
+                    <div class="form-group"><label>Cotisation Annuelle Jeune (FCFA)</label><input type="number" id="fin_cot_j_total" value="2500" readonly></div>
+                    <div class="form-group"><label>Part Nationale ASCCI (FCFA)</label><input type="number" id="fin_cot_j_ascci" value="2085" readonly></div>
+                    <div class="form-group"><label>Part Caisse Groupe (FCFA)</label><input type="number" id="fin_cot_j_groupe" value="415" readonly></div>
+                    <div class="form-group"><label>Cotisation Annuelle CU (FCFA)</label><input type="number" id="fin_cot_cu" value="2600" readonly></div>
+                    <div class="form-group"><label>Cotisation Annuelle CG (FCFA)</label><input type="number" id="fin_cot_cg" value="3000" readonly></div>
+                    <div class="form-group"><label>Cotisation Mensuelle Jeune (FCFA)</label><input type="number" id="fin_cot_mens_j" min="0" value="0"></div>
+                    <div class="form-group"><label>Cotisation Mensuelle Chef (FCFA)</label><input type="number" id="fin_cot_mens_c" min="0" value="0"></div>
+                </div>
+                <button class="btn btn-main" style="width:auto; margin-top:12px; background:#2980b9;" onclick="saveTarifsFinancier()">💾 Enregistrer les cotisations mensuelles</button>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #27ae60;">
+                <h2 class="card-header">🪪 Attribution des Matricules ASCCI (Après paiement annuel)</h2>
+                <p style="font-size:0.85rem; color:#555; margin-bottom:12px;">Ajoutez ou mettez à jour le numéro de matricule ASCCI des jeunes ayant réglé leur cotisation annuelle.</p>
+                <div class="table-responsive">
+                    <table>
+                        <thead><tr><th>Jeune & Branche</th><th>Cotisation Annuelle</th><th>Matricule ASCCI</th><th>Action</th></tr></thead>
+                        <tbody id="matriculeAssignList"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="card">
                 <h2 class="card-header">💰 Nouvelle Opération</h2>
                 <div class="grid-form">
                     <div class="form-group"><label>Type</label><select id="f_type"><option value="in">🟢 Entrée</option><option value="out">🔴 Sortie</option></select></div>
-                    <div class="form-group"><label>Catégorie</label><select id="f_cat" onchange="checkCotisation()"><option>Cotisation Annuelle</option><option>Quota Activité / Camp</option><option>AGR</option><option>Achat Matériel</option><option>Transport</option><option>Alimentation (Intendance)</option><option>Autre</option></select></div>
+                    <div class="form-group"><label>Catégorie</label><select id="f_cat" onchange="checkCotisation()"><option>Cotisation Annuelle</option><option>Cotisation Mensuelle</option><option>Quota Activité / Camp</option><option>AGR</option><option>Achat Matériel</option><option>Transport</option><option>Alimentation (Intendance)</option><option>Autre</option></select></div>
                     <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="f_montant"></div>
                     <div class="form-group"><label>Date</label><input type="date" id="f_date"></div>
                     <div class="form-group" style="grid-column: 1/-1;"><label>Motif / Détails *</label><input type="text" id="f_motif"></div>
 
                     <div class="form-group" id="f_scout_link" style="grid-column: 1/-1; background:#e8f5e9; padding:15px; border-radius:5px; border:1px solid #c8e6c9; display:none;">
-                        <label style="color:#27ae60; font-weight:bold; margin-bottom:5px;">✓ Lier ce paiement à un Membre (Met sa pastille de cotisation au vert 🟢)</label>
-                        <select id="f_scout_select" style="width:100%;"><option value="">Sélectionner le membre qui vient de payer...</option></select>
+                        <label style="color:#27ae60; font-weight:bold; margin-bottom:5px;">✓ Lier ce paiement à un Membre</label>
+                        <select id="f_scout_select" style="width:100%; margin-bottom:8px;"><option value="">Sélectionner le membre qui vient de payer...</option></select>
+                        <div id="f_matricule_box" style="display:none;">
+                            <label style="font-size:0.85rem; font-weight:bold; color:#0a1f44;">Matricule ASCCI à attribuer (optionnel maintenant, modifiable ci-dessus) :</label>
+                            <input type="text" id="f_new_matricule" placeholder="Ex: ASCCI-2026-014" style="width:100%; margin-top:4px;">
+                        </div>
                     </div>
                 </div>
                 <button class="btn btn-warning" style="width:100%; margin-top:15px;" onclick="saveFinance()">Enregistrer l'opération</button>
             </div>
+
             <div class="card table-responsive">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
                     <h3>Livre de Caisse</h3>
@@ -422,7 +471,7 @@
             </div>
         </div>
 
-        <div id="sec-parametres" class="section hidden admin-only">
+        <div id="sec-parametres" class="section hidden">
             <div class="card" style="border-left: 5px solid var(--c-cg);">
                 <h2 class="card-header">⚙️ Infos Groupe, Logos & Cachet Numérique</h2>
                 <div class="grid-form">
@@ -431,8 +480,9 @@
                     <div class="form-group"><label>Logo de l'Appli (Icône / Appli)</label><input type="text" id="cfg_logo_app" placeholder="logo-app.jpg"></div>
                     <div class="form-group"><label>Logo District (Haut gauche PDF)</label><input type="text" id="cfg_logo_district" placeholder="logo-district.jpg"></div>
                     <div class="form-group"><label>Logo Groupe (Haut droite PDF / Header)</label><input type="text" id="cfg_logo_groupe" placeholder="logo.jpg"></div>
-                    <div class="form-group"><label>Tarif Cotisation Jeune (FCFA)</label><input type="number" id="cfg_cot_j"></div>
-                    <div class="form-group"><label>Tarif Cotisation Chef (FCFA)</label><input type="number" id="cfg_cot_c"></div>
+                    <div class="form-group"><label>Cotisation Jeune Total / ASCCI / Caisse</label><input type="text" value="2 500 FCFA (2 085 ASCCI + 415 Groupe)" readonly></div>
+                    <div class="form-group"><label>Cotisation Annuelle CU (FCFA)</label><input type="number" id="cfg_cot_cu" value="2600"></div>
+                    <div class="form-group"><label>Cotisation Annuelle CG (FCFA)</label><input type="number" id="cfg_cot_cg" value="3000"></div>
                     <div class="form-group" style="grid-column: 1/-1; justify-content:center;">
                         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-main);">
                             <input type="checkbox" id="cfg_cachet_actif" checked>

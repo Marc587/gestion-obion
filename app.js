@@ -684,7 +684,7 @@ function afficherActivitesObion() {
         paye: 0
       }));
 
-  const nouvelleActivite = {
+ const nouvelleActivite = {
       id: Date.now(),
       titre: formulaire.get("titre").trim(),
       date: formulaire.get("date"),

@@ -871,7 +871,54 @@ document.querySelectorAll(".btnSupprimerActivite").forEach((bouton) => {
       if (!activiteCible) {
         return;
       }
+document.querySelectorAll(".btnAjouterDepense").forEach((bouton) => {
+    bouton.addEventListener("click", () => {
+      const indexActivite = Number(bouton.dataset.index);
+      const champLibelle = document.getElementById("libelleDepense_" + indexActivite);
+      const champMontant = document.getElementById("montantDepense_" + indexActivite);
 
+      const libelle = champLibelle ? champLibelle.value.trim() : "";
+      const montant = champMontant ? Number(champMontant.value) : 0;
+
+      if (!libelle) {
+        alert("Indique un libellé pour la dépense.");
+        return;
+      }
+
+      if (!Number.isFinite(montant) || montant <= 0) {
+        alert("Indique un montant supérieur à 0 F CFA.");
+        return;
+      }
+
+      if (!Array.isArray(activitesObion[indexActivite].depenses)) {
+        activitesObion[indexActivite].depenses = [];
+      }
+
+      activitesObion[indexActivite].depenses.push({
+        libelle: libelle,
+        montant: montant
+      });
+
+      sauvegarderActivitesObion();
+      afficherActivitesObion();
+    });
+  });
+
+  document.querySelectorAll(".btnSupprimerDepense").forEach((bouton) => {
+    bouton.addEventListener("click", () => {
+      const indexActivite = Number(bouton.dataset.activite);
+      const indexDepense = Number(bouton.dataset.depense);
+      const listeDepenses = activitesObion[indexActivite]?.depenses || [];
+
+      if (!listeDepenses[indexDepense]) {
+        return;
+      }
+
+      listeDepenses.splice(indexDepense, 1);
+      sauvegarderActivitesObion();
+      afficherActivitesObion();
+    });
+  });
       if (confirm("Supprimer l’activité « " + activiteCible.titre + " » ?")) {
         activitesObion.splice(indexActivite, 1);
         sauvegarderActivitesObion();

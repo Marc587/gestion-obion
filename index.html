@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ERP Scout - Groupe OBION</title>
 
-    <link rel="icon" type="image/jpeg" href="logo.jpg">
-    <link rel="apple-touch-icon" href="logo.jpg">
+    <link id="favIconLink" rel="icon" type="image/jpeg" href="logo-app.jpg">
+    <link id="appleIconLink" rel="apple-touch-icon" href="logo-app.jpg">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -41,6 +41,7 @@
         .header-logo { width: 60px; height: 60px; object-fit: cover; border-radius: 50%; margin-bottom: 10px; border: 2px solid white; }
         header h1 { font-size: 1.4rem; }
         header p { color: #bdc3c7; font-size: 0.85rem; margin-top: 5px; }
+        .sync-badge { display: inline-block; margin-top: 8px; padding: 3px 12px; border-radius: 12px; font-size: 0.78rem; font-weight: bold; background: rgba(255,255,255,0.14); color: #ecf0f1; }
         .btn-logout { position: absolute; top: 15px; right: 15px; background: #e74c3c; color: white; border: none; padding: 6px 14px; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 0.8rem; }
 
         .tab-menu { display: flex; flex-wrap: wrap; background: white; box-shadow: var(--shadow); position: sticky; top: 0; z-index: 100; padding: 10px; justify-content: center; gap: 8px; }
@@ -100,6 +101,13 @@
         .modal-content { background: white; padding: 25px; border-radius: 12px; width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto; position: relative; }
         .close-modal { position: absolute; top: 15px; right: 15px; font-size: 1.5rem; cursor: pointer; border: none; background: none; color: #888; }
 
+        .doc-header-logos { display: flex; justify-content: space-between; align-items: center; gap: 15px; border-bottom: 2px solid #0a1f44; padding-bottom: 12px; margin-bottom: 18px; }
+        .doc-logo { width: 75px; height: 75px; object-fit: contain; }
+        .doc-header-center { text-align: center; flex: 1; }
+        .cachet-cg { margin-top: 28px; display: inline-block; border: 2.5px solid #0a1f44; border-radius: 10px; padding: 12px 18px; background: #fafbfd; color: #0a1f44; min-width: 260px; transform: rotate(-1.5deg); }
+        .cachet-cg strong { display: block; font-size: 0.95rem; text-transform: uppercase; color: #8e44ad; }
+        .cachet-cg small { display: block; font-size: 0.8rem; color: #333; margin-top: 3px; }
+
         @media print {
             body * { visibility: hidden; }
             #printArea, #printArea * { visibility: visible; }
@@ -113,14 +121,14 @@
 <body>
 
 <div id="loaderScreen">
-    <img src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
+    <img id="loaderLogoImg" src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
     <div class="spinner"></div>
     <h2 style="color:var(--text-main);">Connexion au cloud ASCCI...</h2>
 </div>
 
 <div id="loginScreen" class="no-print">
     <div class="login-box">
-        <img src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
+        <img id="loginLogoImg" src="logo.jpg" alt="Logo OBION" class="login-logo" onerror="this.style.display='none'">
         <h1>Groupe OBION</h1>
         <p>Portail de Connexion - Maîtrise<br><small>St Bernard d'Adiopodoumé KM17</small></p>
         <div class="form-group" style="text-align: left; margin-bottom: 15px;">
@@ -138,12 +146,13 @@
 
 <div id="appContainer">
     <header class="no-print">
-        <img src="logo.jpg" alt="Logo OBION" class="header-logo" onerror="this.style.display='none'">
+        <img id="headerLogoImg" src="logo.jpg" alt="Logo OBION" class="header-logo" onerror="this.style.display='none'">
         <h1>ERP SCOUT - OBION</h1>
         <p>St Bernard d'Adiopodoumé KM17</p>
         <p style="margin-top: 10px; font-size: 0.9rem; background: rgba(255,255,255,0.1); padding: 5px 15px; border-radius: 15px;">
             Connecté : <span id="current_user_display" style="color:var(--c-meute); font-weight:bold;"></span>
         </p>
+        <span class="sync-badge" id="syncBadge">☁️ Synchronisation...</span>
         <button class="btn-logout" onclick="logout()">Déconnexion</button>
     </header>
 
@@ -248,11 +257,12 @@
 
         <div id="sec-effectifs" class="section hidden">
             <div class="card admin-only" style="background: #e8f5e9; border-left: 5px solid #27ae60;">
-                <h3 style="color: #27ae60; font-size: 1.1rem; margin-bottom: 5px;">📥 Importation massive (Fichier CSV)</h3>
+                <h3 style="color: #27ae60; font-size: 1.1rem; margin-bottom: 5px;">📥 Importation & Exportation (CSV)</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button class="btn btn-secondary" onclick="downloadCsvTemplate()">1. Télécharger le modèle</button>
                     <input type="file" id="csvFileInput" accept=".csv" style="display:none;" onchange="importScoutsCSV(event)">
-                    <button class="btn btn-success" onclick="document.getElementById('csvFileInput').click()">2. Importer le fichier</button>
+                    <button class="btn btn-success" onclick="document.getElementById('csvFileInput').click()">2. Importer CSV</button>
+                    <button class="btn btn-main" style="width:auto; margin-top:0;" onclick="exportScoutsCSV()">📤 Exporter Effectifs CSV</button>
                 </div>
             </div>
 
@@ -271,6 +281,7 @@
                     <div class="form-group"><label>Contact Parent *</label><input type="tel" id="s_tel" placeholder="N° du parent"></div>
                     <div class="form-group"><label>Contact Jeune (Chemin/Route)</label><input type="tel" id="s_tel_perso" placeholder="Facultatif"></div>
                     <div class="form-group"><label>Parrain / Marraine</label><input type="text" id="s_parrain"></div>
+                    <div class="form-group"><label>Contact Parrain / Marraine</label><input type="tel" id="s_parrain_tel" placeholder="N° du parrain"></div>
                     <div class="form-group"><label>Groupe Sanguin</label><select id="s_sang"><option>Inconnu</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
                     <div class="form-group"><label>Allergies / Médicaments</label><input type="text" id="s_medical"></div>
                     <div class="form-group" style="grid-column: 1/-1;"><label>Contact Urgence</label><input type="text" id="s_urgence"></div>
@@ -400,21 +411,45 @@
                 <button class="btn btn-warning" style="width:100%; margin-top:15px;" onclick="saveFinance()">Enregistrer l'opération</button>
             </div>
             <div class="card table-responsive">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"><h3>Livre de Caisse</h3><button class="btn btn-secondary" onclick="printCaisse()">📄 Bilan PDF</button></div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+                    <h3>Livre de Caisse</h3>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-success" onclick="exportFinancesCSV()">📤 Export CSV</button>
+                        <button class="btn btn-secondary" onclick="printCaisse()">📄 Bilan PDF</button>
+                    </div>
+                </div>
                 <table id="tableFinance"><thead><tr><th>Date</th><th>Type</th><th>Catégorie</th><th>Motif</th><th>Montant</th><th class="no-print">Action</th></tr></thead><tbody id="financeList"></tbody></table>
             </div>
         </div>
 
         <div id="sec-parametres" class="section hidden admin-only">
             <div class="card" style="border-left: 5px solid var(--c-cg);">
-                <h2 class="card-header">⚙️ Infos Groupe (En-tête PDF)</h2>
+                <h2 class="card-header">⚙️ Infos Groupe, Logos & Cachet Numérique</h2>
                 <div class="grid-form">
                     <div class="form-group"><label>Nom du Chef de Groupe *</label><input type="text" id="cfg_cg_nom" placeholder="Ex: Jean DUPONT"></div>
                     <div class="form-group"><label>Contact du Chef de Groupe *</label><input type="tel" id="cfg_cg_tel" placeholder="Ex: 01 02 03 04 05"></div>
+                    <div class="form-group"><label>Logo de l'Appli (Icône / Appli)</label><input type="text" id="cfg_logo_app" placeholder="logo-app.jpg"></div>
+                    <div class="form-group"><label>Logo District (Haut gauche PDF)</label><input type="text" id="cfg_logo_district" placeholder="logo-district.jpg"></div>
+                    <div class="form-group"><label>Logo Groupe (Haut droite PDF / Header)</label><input type="text" id="cfg_logo_groupe" placeholder="logo.jpg"></div>
                     <div class="form-group"><label>Tarif Cotisation Jeune (FCFA)</label><input type="number" id="cfg_cot_j"></div>
                     <div class="form-group"><label>Tarif Cotisation Chef (FCFA)</label><input type="number" id="cfg_cot_c"></div>
+                    <div class="form-group" style="grid-column: 1/-1; justify-content:center;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text-main);">
+                            <input type="checkbox" id="cfg_cachet_actif" checked>
+                            Inclure le cachet numérique du Chef de Groupe par défaut sur les documents imprimables
+                        </label>
+                    </div>
                 </div>
                 <button class="btn btn-main" style="background:var(--c-cg);" onclick="saveSettings()">💾 Enregistrer les informations</button>
+            </div>
+
+            <div class="card" style="border-left: 5px solid #2980b9;">
+                <h2 class="card-header">💾 Sauvegarde & Restauration JSON</h2>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn btn-main" style="width:auto; margin-top:0; background:#2980b9;" onclick="exportBackupJSON()">⬇️ Exporter sauvegarde JSON</button>
+                    <input type="file" id="jsonBackupInput" accept=".json" style="display:none;" onchange="importBackupJSON(event)">
+                    <button class="btn btn-secondary" onclick="document.getElementById('jsonBackupInput').click()">⬆️ Restaurer sauvegarde JSON</button>
+                </div>
             </div>
 
             <div class="card" style="border-left: 5px solid #f39c12;">
@@ -508,7 +543,11 @@
         <button class="close-modal" onclick="closeM('modalAutoConfig')">&times;</button>
         <h2 style="color:var(--text-main); margin-bottom:15px;">Générer l'autorisation parentale</h2>
         <p style="color:#666; font-size:0.9rem; margin-bottom:10px;">Cible : <strong id="ma_target_name"></strong></p>
-        <div class="form-group" style="margin-bottom:20px;"><label>Personnalisez le texte de l'activité :</label><textarea id="ma_custom_text" rows="3">à participer au camp de [Lieu] qui se tiendra du [Date] au [Date].</textarea></div>
+        <div class="form-group" style="margin-bottom:15px;"><label>Personnalisez le texte de l'activité :</label><textarea id="ma_custom_text" rows="3">à participer au camp de [Lieu] qui se tiendra du [Date] au [Date].</textarea></div>
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:15px; font-size:0.9rem;">
+            <input type="checkbox" id="ma_include_cachet" checked>
+            Inclure le cachet numérique du Chef de Groupe sur ce document
+        </label>
         <button class="btn btn-main" onclick="printAutoRun()">🖨️ Générer et Imprimer le document</button>
     </div>
 </div>

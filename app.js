@@ -1401,31 +1401,10 @@ function renderAll() {
   renderSettingsInputs();
 }
 
-async function initApp() {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const pDate = document.getElementById("p_date");
-  const fDate = document.getElementById("f_date");
-  if (pDate && !pDate.value) pDate.value = todayStr;
-  if (fDate && !fDate.value) fDate.value = todayStr;
-
-  normalizeDb();
-
-  try {
-    const snap = await withTimeout(docRefObion.get(), 3500);
-    if (snap && snap.exists) {
-      db = snap.data();
-      normalizeDb();
-      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
-    } else {
-      withTimeout(docRefObion.set(db, { merge: true }), 3500).catch(() => {});
-    }
-  } catch (err) {
-    console.warn("Passage en mode local / secours :", err);
-    normalizeDb();
-  }
-
+function finishInitUI() {
   populateLoginSelect();
-  document.getElementById("loaderScreen").style.display = "none";
+  const loader = document.getElementById("loaderScreen");
+  if (loader) loader.style.display = "none";
 
   const savedSession = sessionStorage.getItem(SESSION_KEY);
   if (savedSession) {
@@ -1443,6 +1422,40 @@ async function initApp() {
   }
 
   document.getElementById("loginScreen").style.display = "flex";
+}
+
+async function initApp() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const pDate = document.getElementById("p_date");
+  const fDate = document.getElementById("f_date");
+  if (pDate && !pDate.value) pDate.value = todayStr;
+  if (fDate && !fDate.value) fDate.value = todayStr;
+
+  normalizeDb();
+  finishInitUI();
+
+  try {
+    const snap = await withTimeout(docRefObion.get(), 4000);
+    if (snap && snap.exists) {
+      db = snap.data();
+      normalizeDb();
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+      populateLoginSelect();
+      if (currentUser) {
+        const refreshed = getUsersList().find((u) => u.id === currentUser.id);
+        if (refreshed) {
+          currentUser = refreshed;
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+          applyRolePermissions();
+        }
+        renderAll();
+      }
+    } else {
+      withTimeout(docRefObion.set(db, { merge: true }), 4000).catch(() => {});
+    }
+  } catch (err) {
+    console.warn("Synchro cloud différée, mode local actif :", err);
+  }
 }
 
 window.addEventListener("DOMContentLoaded", initApp);

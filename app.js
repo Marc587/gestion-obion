@@ -366,7 +366,7 @@ function buildReceiptPreview(e) {
     ${buildSpecialReceiptHtml({ numero, date, nomJeune, brancheJeune, matricule, motif, detail, montant })}
     <div class="actions-row" style="margin-top:12px;">
       <button type="button" class="btn btn-sm btn-success" onclick="copyLastReceipt()">📋 Copier le reçu</button>
-      <button type="button" class="btn btn-sm btn-secondary" onclick="printReceiptCard()">🖨️ Imprimer / PDF</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="()">🖨️ Imprimer / PDF</button>
     </div>
   `;
 }
@@ -376,7 +376,30 @@ function copyLastReceipt() {
   navigator.clipboard?.writeText(lastReceiptText);
   alert("Reçu copié !");
 }
+function triggerPrintHtml(html) {
+  if (typeof closeModal === "function") {
+    closeModal();
+  }
+  const pz = document.getElementById("printZone");
+  if (!pz) return;
+  pz.innerHTML = `<div style="font-family:sans-serif; padding:12px; color:#000; background:#fff;">${html}</div>`;
+  pz.style.display = "block";
 
+  setTimeout(() => {
+    try {
+      window.print();
+    } catch (err) {
+      console.error("Erreur impression:", err);
+      alert("L'impression a été bloquée par le navigateur.");
+    }
+  }, 100);
+}
+
+function printReceiptCard() {
+  const card = document.getElementById("printableReceiptCard");
+  if (!card) return;
+  triggerPrintHtml(card.outerHTML);
+}
 function printReceiptCard() {
   const card = document.getElementById("printableReceiptCard");
   if (!card) return;

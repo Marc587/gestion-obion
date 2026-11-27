@@ -10,9 +10,7 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-firebase.initializeApp(firebaseConfig);
 const firestoreDb = firebase.firestore();
-});
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
 const BACKUP_KEY = "obion_erp_backup_v1";

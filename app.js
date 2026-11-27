@@ -1245,14 +1245,24 @@ function printAutorisationCamp(campId) {
   `);
 }
 
-/* 6. PÉDAGOGIE & 7. MATÉRIEL */
+/* 6. PÉDAGOGIE */
+function getBranchStepsList(branche) {
+  const raw = (db.settings && db.settings.prog && db.settings.prog[branche]) || "";
+  return raw
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 function renderPedagogie() {
   const br = document.getElementById("pedagoBrancheSelect").value;
   const refBox = document.getElementById("pedagoReferentielBox");
   if (br && br !== "Toutes" && db.settings.prog && db.settings.prog[br]) {
     refBox.innerHTML = `<strong>Référentiel ${escapeHtml(br)} :</strong> ${escapeHtml(db.settings.prog[br])}`;
   } else {
-    refBox.innerHTML = Object.entries(db.settings.prog || {}).map(([k, v]) => `<div><strong>${escapeHtml(k)} :</strong> ${escapeHtml(v)}</div>`).join("");
+    refBox.innerHTML = Object.entries(db.settings.prog || {})
+      .map(([k, v]) => `<div><strong>${escapeHtml(k)} :</strong> ${escapeHtml(v)}</div>`)
+      .join("");
   }
 
   let list = getScopedScouts();
@@ -1269,12 +1279,61 @@ function renderPedagogie() {
   `).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun jeune.</td></tr>`;
 }
 
+function openPedagoReferentielModal() {
+  const selectedBr = document.getElementById("pedagoBrancheSelect").value;
+  const targetBr = selectedBr && selectedBr !== "Toutes" ? selectedBr : (isCU() && currentUser.branche ? currentUser.branche : "Meute");
+  const currentVal = (db.settings && db.settings.prog && db.settings.prog[targetBr]) || "";
+
+  openModal("Modifier les étapes de progression par branche", `
+    <form onsubmit="savePedagoReferentiel(event)">
+      <div class="form-group">
+        <label>Branche</label>
+        <select id="ref_branche" onchange="document.getElementById('ref_etapes').value = (db.settings.prog[this.value] || '')">
+          ${BRANCHES.map((b) => `<option value="${b}" ${b === targetBr ? "selected" : ""}>${b}</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Étapes de progression (séparées par des virgules)</label>
+        <textarea id="ref_etapes" required>${escapeHtml(currentVal)}</textarea>
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-success">Enregistrer les étapes</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      </div>
+    </form>
+  `);
+}
+
+async function savePedagoReferentiel(e) {
+  e.preventDefault();
+  const br = document.getElementById("ref_branche").value;
+  const etapes = document.getElementById("ref_etapes").value.trim();
+  if (!db.settings.prog || typeof db.settings.prog !== "object") {
+    db.settings.prog = {};
+  }
+  db.settings.prog[br] = etapes;
+  closeModal();
+  await persistDb("Mise à jour référentiel progression", `${br} : ${etapes}`);
+}
+
 function openPedagoModal(scoutId) {
   const s = db.scouts.find((x) => x.id === scoutId);
   if (!s) return;
+  const steps = getBranchStepsList(s.branche);
+  const stepOptionsHtml = steps.length
+    ? `<div class="form-group">
+        <label>Choisir une étape du référentiel (${escapeHtml(s.branche)})</label>
+        <select onchange="if(this.value) document.getElementById('pd_etape').value = this.value">
+          <option value="">-- Sélectionner une étape --</option>
+          ${steps.map((st) => `<option value="${escapeHtml(st)}" ${s.etape_pedago === st ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
+        </select>
+      </div>`
+    : "";
+
   openModal(`Progression — ${s.nom} ${s.prenom}`, `
     <form onsubmit="savePedago(event, '${s.id}')">
-      <div class="form-group"><label>Étape</label><input type="text" id="pd_etape" value="${escapeHtml(s.etape_pedago || "")}"></div>
+      ${stepOptionsHtml}
+      <div class="form-group"><label>Étape actuelle</label><input type="text" id="pd_etape" value="${escapeHtml(s.etape_pedago || "")}"></div>
       <div class="form-group"><label>Notes</label><textarea id="pd_notes">${escapeHtml(s.notes_pedago || "")}</textarea></div>
       <div class="actions-row"><button type="submit" class="btn btn-success">Enregistrer</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>
     </form>
@@ -1291,7 +1350,6 @@ async function savePedago(e, scoutId) {
   closeModal();
   await persistDb("Mise à jour pédagogie", scoutId);
 }
-
 function renderMateriel() {
   document.getElementById("materielTableBody").innerHTML = db.materiel.length ? db.materiel.map((m) => `
     <tr>

@@ -13,7 +13,8 @@ firebase.initializeApp(firebaseConfig);
 const firestoreDb = firebase.firestore();
 firestoreDb.settings({
   experimentalForceLongPolling: true,
-  useFetchStreams: false
+  useFetchStreams: false,
+  merge: true
 });
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 

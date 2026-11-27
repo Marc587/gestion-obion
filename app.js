@@ -1611,6 +1611,45 @@ async function saveCustomCotisation(e) {
   await persistDb("Création cotisation", `${titre} (${formatMoney(montant)})`);
 }
 
+function getCotisationMembersList(targetGroup = "scouts") {
+  const brFilter = document.getElementById("cotFilterBranche")?.value || "Toutes";
+  const members = [];
+
+  if (targetGroup === "scouts" || targetGroup === "tous") {
+    (db.scouts || [])
+      .filter((s) => brFilter === "Toutes" || s.branche === brFilter)
+      .forEach((s) => {
+        members.push({
+          kind: "scout",
+          id: s.id,
+          nomComplet: `${s.nom} ${s.prenom}`,
+          branche: s.branche || "-",
+          roleLabel: s.fonction || "Jeune",
+          matricule: s.matricule || "",
+          cotAnnuellePaye: s.cotisation_annuelle === "paye"
+        });
+      });
+  }
+
+  if (targetGroup === "chefs" || targetGroup === "tous") {
+    (db.chefs || [])
+      .filter((c) => brFilter === "Toutes" || c.branche === brFilter)
+      .forEach((c) => {
+        members.push({
+          kind: "chef",
+          id: c.id,
+          nomComplet: c.nom,
+          branche: c.branche || "Groupe",
+          roleLabel: c.fonction || "Chef d'Unité",
+          matricule: c.matricule || "",
+          cotAnnuellePaye: null
+        });
+      });
+  }
+
+  return members;
+}
+
 function renderCotisationsSuivi() {
   if (!canManageFinances()) return;
   const sel = document.getElementById("cotTypeSelect");
@@ -1620,39 +1659,43 @@ function renderCotisationsSuivi() {
   if (prevVal && opts.some((o) => o.id === prevVal)) sel.value = prevVal;
 
   const activeCot = opts.find((o) => o.id === sel.value) || opts[0];
-  const brFilter = document.getElementById("cotFilterBranche").value;
-  const list = db.scouts.filter((s) => brFilter === "Toutes" || s.branche === brFilter);
+  const targetGroup = document.getElementById("cotTargetGroupSelect")?.value || "scouts";
+  const list = getCotisationMembersList(targetGroup);
 
-  document.getElementById("cotisationsSuiviBody").innerHTML = list.length ? list.map((s) => {
-    const annPaye = s.cotisation_annuelle === "paye";
-    const key = `${activeCot.id}__${s.id}`;
-    const cotPaye = Boolean(db.cotisationPayments[key]);
+  document.getElementById("cotisationsSuiviBody").innerHTML = list.length ? list.map((m) => {
+    const key = `${activeCot.id}__${m.kind}__${m.id}`;
+    const legacyKey = `${activeCot.id}__${m.id}`;
+    const cotPaye = Boolean(db.cotisationPayments[key] || (m.kind === "scout" && db.cotisationPayments[legacyKey]));
+
+    const annuelleCell = m.kind === "scout"
+      ? `
+        <div class="actions-row">
+          <button type="button" class="btn btn-sm ${m.cotAnnuellePaye ? "btn-success" : "btn-warning"}" onclick="toggleAnnuelleWithMatricule('${m.id}')">
+            ${m.cotAnnuellePaye ? "✅ Payée" : "❌ Non payée"}
+          </button>
+          <input type="text" value="${escapeHtml(m.matricule || "")}" placeholder="Matricule..."
+            style="min-height:32px; padding:4px 8px; width:125px;"
+            onchange="confirmAnnuelleByMatricule('${m.id}', this.value)">
+        </div>
+      `
+      : `<span class="badge badge-blue">${escapeHtml(m.roleLabel)}</span>`;
 
     return `
       <tr>
-        <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
-        <td>${escapeHtml(s.branche)}</td>
+        <td><strong>${escapeHtml(m.nomComplet)}</strong></td>
+        <td>${escapeHtml(m.branche)}</td>
+        <td>${annuelleCell}</td>
         <td>
-          <div class="actions-row">
-            <button type="button" class="btn btn-sm ${annPaye ? "btn-success" : "btn-warning"}" onclick="toggleAnnuelleWithMatricule('${s.id}')">
-              ${annPaye ? "✅ Payée" : "❌ Non payée"}
-            </button>
-            <input type="text" value="${escapeHtml(s.matricule || "")}" placeholder="Matricule..."
-              style="min-height:32px; padding:4px 8px; width:125px;"
-              onchange="confirmAnnuelleByMatricule('${s.id}', this.value)">
-          </div>
-        </td>
-        <td>
-          <button type="button" class="btn btn-sm ${cotPaye ? "btn-success" : "btn-secondary"}" onclick="toggleCustomCotPaymentByKey('${s.id}', '${activeCot.id}')">
+          <button type="button" class="btn btn-sm ${cotPaye ? "btn-success" : "btn-secondary"}" onclick="toggleCustomCotPaymentByKey('${m.id}', '${activeCot.id}', '${m.kind}')">
             ${cotPaye ? "✅ Payée" : "❌ Non payée"}
           </button>
         </td>
         <td>
-          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForCot('${s.id}', '${activeCot.id}')">🧾 Reçu</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForCot('${m.id}', '${activeCot.id}', '${m.kind}')">🧾 Reçu</button>
         </td>
       </tr>
     `;
-  }).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun jeune.</td></tr>`;
+  }).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun membre trouvé.</td></tr>`;
 }
 
 async function confirmAnnuelleByMatricule(scoutId, matVal) {
@@ -1707,14 +1750,19 @@ async function toggleAnnuelleWithMatricule(scoutId) {
   }
 }
 
-async function toggleCustomCotPaymentByKey(scoutId, cotId) {
+async function toggleCustomCotPaymentByKey(memberId, cotId, kind = "scout") {
   if (!canManageFinances()) return;
-  const scout = db.scouts.find((s) => s.id === scoutId);
   const opts = getAvailableCotisationsOptions();
   const activeCot = opts.find((o) => o.id === cotId) || opts[0];
-  if (!scout || !activeCot) return;
+  if (!activeCot) return;
 
-  const key = `${activeCot.id}__${scoutId}`;
+  const member = kind === "chef"
+    ? (db.chefs || []).find((c) => c.id === memberId)
+    : (db.scouts || []).find((s) => s.id === memberId);
+  if (!member) return;
+
+  const memberName = kind === "chef" ? member.nom : `${member.nom} ${member.prenom}`;
+  const key = `${activeCot.id}__${kind}__${memberId}`;
   const nextState = !db.cotisationPayments[key];
   db.cotisationPayments[key] = nextState;
 
@@ -1724,17 +1772,32 @@ async function toggleCustomCotPaymentByKey(scoutId, cotId) {
       date: new Date().toISOString().slice(0, 10),
       type: "entree",
       categorie: "Cotisation",
-      libelle: `${activeCot.label} — ${scout.nom} ${scout.prenom}`,
+      libelle: `${activeCot.label} (${kind === "chef" ? "Chef" : "Jeune"}) — ${memberName}`,
       montant: Number(activeCot.montant)
     });
   }
-  await persistDb(nextState ? "Paiement cotisation" : "Retrait paiement cotisation", `${activeCot.label} — ${scout.nom} ${scout.prenom}`);
+  await persistDb(nextState ? "Paiement cotisation" : "Retrait paiement cotisation", `${activeCot.label} — ${memberName}`);
 }
 
-function openReceiptForCot(scoutId, cotId) {
+function openReceiptForCot(memberId, cotId, kind = "scout") {
   const opts = getAvailableCotisationsOptions();
   const activeCot = opts.find((o) => o.id === cotId) || opts[0];
-  openReceiptForScout(scoutId, activeCot ? activeCot.label : "Cotisation", activeCot ? activeCot.montant : 500);
+  const member = kind === "chef"
+    ? (db.chefs || []).find((c) => c.id === memberId)
+    : (db.scouts || []).find((s) => s.id === memberId);
+
+  if (kind === "chef" && member) {
+    openReceiptModal();
+    setTimeout(() => {
+      const det = document.getElementById("rc_detail");
+      const mnt = document.getElementById("rc_montant");
+      if (det) det.value = `${activeCot ? activeCot.label : "Cotisation mensuelle"} — ${member.nom} (${member.branche || "Groupe"})`;
+      if (mnt) mnt.value = activeCot ? activeCot.montant : (db.settings.cot_mens_j || 500);
+    }, 30);
+    return;
+  }
+
+  openReceiptForScout(memberId, activeCot ? activeCot.label : "Cotisation", activeCot ? activeCot.montant : 500);
 }
 
 /* PAIEMENTS PAR ACTIVITÉ OU CAMP À PRIX FIXÉ */

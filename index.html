@@ -93,10 +93,10 @@ body {
   border: 1px solid var(--border);
 }
 
-.login-logos { display: flex; justify-content: center; gap: 12px; margin-bottom: 14px; }
+.login-logos { display: flex; justify-content: center; gap: 14px; margin-bottom: 14px; }
 .login-logos img {
-  width: 54px;
-  height: 54px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--primary);
@@ -190,7 +190,6 @@ body {
 }
 
 .card-title { font-size: 1.05rem; font-weight: 700; color: var(--primary); }
-.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
 .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 
 .kpi-box {
@@ -361,29 +360,6 @@ tr:hover td { background: #f8fafc; }
   background: #fcfdfb;
 }
 
-.receipt-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.cachet-box {
-  display: inline-block;
-  margin-top: 14px;
-  padding: 8px 14px;
-  border: 2px solid var(--primary);
-  border-radius: 8px;
-  color: var(--primary);
-  font-weight: 700;
-  font-size: 0.8rem;
-  transform: rotate(-2deg);
-}
-
 #printZone { display: none; }
 
 @media print {
@@ -427,9 +403,8 @@ tr:hover td { background: #f8fafc; }
 <section id="loginScreen" class="no-print">
   <div class="login-card">
     <div class="login-logos">
-      <img src="logo-app.jpg" alt="OBION" onerror="this.style.display='none'">
-      <img src="logo-district.jpg" alt="District" onerror="this.style.display='none'">
-      <img src="logo.jpg" alt="Groupe OBION" onerror="this.style.display='none'">
+      <img src="logo-district.jpg" alt="Logo District" onerror="this.style.display='none'">
+      <img src="logo.jpg" alt="Logo Groupe OBION" onerror="this.style.display='none'">
     </div>
     <h2>Groupe Scout OBION</h2>
     <p class="subtitle">Connexion à l'espace de gestion</p>
@@ -457,15 +432,11 @@ tr:hover td { background: #f8fafc; }
 
       <div class="form-group">
         <label for="loginPin">Code PIN d'accès</label>
-        <input type="password" id="loginPin" placeholder="PIN individuel CU ou PIN du rôle" required>
+        <input type="password" id="loginPin" placeholder="Entrez votre code PIN" required>
       </div>
 
       <button type="submit" class="btn" style="width:100%;">Se connecter</button>
     </form>
-
-    <p style="margin-top:14px; font-size:0.76rem; color:var(--muted); text-align:center;">
-      PIN par défaut : CG = <strong>1111</strong> · Financier = <strong>2222</strong> · CU = <strong>PIN individuel du CU</strong> (ou <strong>3333</strong> par défaut)
-    </p>
   </div>
 </section>
 
@@ -534,6 +505,26 @@ tr:hover td { background: #f8fafc; }
         <h2 class="card-title">🔔 Alertes & Points d'attention</h2>
       </div>
       <div id="dashAlertsContainer"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">📌 Récapitulatif : Jeunes sans tenue & Jeunes sans matricule</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Jeune</th>
+              <th>Branche</th>
+              <th>Situation</th>
+              <th>Parent & Contact</th>
+              <th>Message pré-rempli & WhatsApp</th>
+            </tr>
+          </thead>
+          <tbody id="tenueMatriculeTableBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -660,7 +651,7 @@ tr:hover td { background: #f8fafc; }
     </div>
   </section>
 
-  <!-- 4. PROGRAMME ANNUEL (ACTIVITÉS DE MAÎTRISE & PROGRAMME) -->
+  <!-- 4. PROGRAMME ANNUEL -->
   <section id="tab-programme" class="tab-panel">
     <div class="card">
       <div class="card-header">
@@ -677,7 +668,7 @@ tr:hover td { background: #f8fafc; }
         </div>
       </div>
       <p style="font-size:0.84rem; color:var(--muted); margin-bottom:12px;">
-        Toutes les activités du programme annuel figurent ici. Chaque CU ne voit que ce qui le concerne (CU seul, Tous les chefs ou sa branche). Si un tarif est fixé, le Financier peut gérer le paiement par jeune.
+        Toutes les activités du programme annuel figurent ici. Chaque CU ne voit que ce qui le concerne (CU seul, Tous les chefs ou sa branche).
       </p>
       <div class="table-wrap">
         <table>
@@ -829,7 +820,7 @@ tr:hover td { background: #f8fafc; }
         </div>
       </div>
       <p style="font-size:0.84rem; color:var(--muted); margin-bottom:10px;">
-        Pour la cotisation annuelle, l'ajout du numéro de matricule confirme le paiement annuel du jeune. Vous pouvez aussi créer de nouvelles cotisations mensuelles ou ponctuelles.
+        Pour la cotisation annuelle, l'ajout du numéro de matricule confirme le paiement annuel du jeune.
       </p>
       <div class="table-wrap">
         <table>

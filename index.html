@@ -721,19 +721,22 @@ tr:hover td { background: #f8fafc; }
     </div>
   </section>
 
-  <!-- 6. PÉDAGOGIE -->
+ <!-- 6. PÉDAGOGIE -->
   <section id="tab-pedagogie" class="tab-panel">
     <div class="card">
       <div class="card-header">
         <h2 class="card-title">Carnet de Progression Pédagogique</h2>
-        <select id="pedagoBrancheSelect" onchange="renderPedagogie()" style="width:auto; min-width:150px;">
-          <option value="Toutes">Toutes les branches</option>
-          <option value="Oisillon">Oisillon</option>
-          <option value="Meute">Meute</option>
-          <option value="Troupe">Troupe</option>
-          <option value="Chemin">Chemin</option>
-          <option value="Route">Route</option>
-        </select>
+        <div class="actions-row">
+          <select id="pedagoBrancheSelect" onchange="renderPedagogie()" style="width:auto; min-width:150px;">
+            <option value="Toutes">Toutes les branches</option>
+            <option value="Oisillon">Oisillon</option>
+            <option value="Meute">Meute</option>
+            <option value="Troupe">Troupe</option>
+            <option value="Chemin">Chemin</option>
+            <option value="Route">Route</option>
+          </select>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="openPedagoReferentielModal()">✏️ Modifier les étapes</button>
+        </div>
       </div>
       <div id="pedagoReferentielBox" class="kpi-box" style="margin-bottom:14px;"></div>
       <div class="table-wrap">
@@ -752,7 +755,6 @@ tr:hover td { background: #f8fafc; }
       </div>
     </div>
   </section>
-
   <!-- 7. MATÉRIEL -->
   <section id="tab-materiel" class="tab-panel">
     <div class="card">

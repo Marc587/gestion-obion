@@ -21,6 +21,13 @@ const BACKUP_KEY = "obion_erp_backup_v1";
 const SESSION_KEY = "obion_erp_session_v1";
 const BRANCHES = ["Oisillon", "Meute", "Troupe", "Chemin", "Route"];
 
+function cloneSafe(obj) {
+  try {
+    if (typeof structuredClone === "function") return structuredClone(obj);
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(obj));
+}
+
 const defaultData = {
   scouts: [],
   chefs: [],
@@ -62,7 +69,7 @@ const defaultData = {
 };
 
 function normalizeDb(raw) {
-  const base = structuredClone(defaultData);
+  const base = cloneSafe(defaultData);
   if (!raw || typeof raw !== "object") return base;
   return {
     scouts: Array.isArray(raw.scouts) ? raw.scouts : [],
@@ -92,8 +99,24 @@ function normalizeDb(raw) {
   };
 }
 
-let db = normalizeDb(JSON.parse(localStorage.getItem(BACKUP_KEY) || "null"));
-let currentUser = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+function readLocalBackup() {
+  try {
+    return normalizeDb(JSON.parse(localStorage.getItem(BACKUP_KEY) || "null"));
+  } catch (e) {
+    return cloneSafe(defaultData);
+  }
+}
+
+function readSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+  } catch (e) {
+    return null;
+  }
+}
+
+let db = readLocalBackup();
+let currentUser = readSession();
 let currentActiveTab = "dashboard";
 let isSavingCloud = false;
 let unsubscribeRealtime = null;
@@ -114,7 +137,8 @@ function escapeHtml(str) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function normalizeWaPhone(rawPhone) {
@@ -145,7 +169,12 @@ async function persistDb(auditAction = "", auditDetail = "") {
   }
 
   db = normalizeDb(db);
-  localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+  try {
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+  } catch (e) {
+    console.warn("Erreur localStorage:", e);
+  }
+
   renderAllViews();
 
   if (isSavingCloud) return;
@@ -157,7 +186,7 @@ async function persistDb(auditAction = "", auditDetail = "") {
     setSyncStatus("☁️ Synchronisé", true);
   } catch (err) {
     console.error("Erreur Firestore set:", err);
-    setSyncStatus("⚠️ Mode local (hors ligne)", false);
+    setSyncStatus("⚠️ Local uniquement (vérifier règles)", false);
   } finally {
     isSavingCloud = false;
   }
@@ -168,36 +197,44 @@ function startRealtimeSync() {
   setSyncStatus("⏳ Connexion cloud...", true);
   unsubscribeRealtime = docRefObion.onSnapshot(
     (snap) => {
-      if (snap.exists && !isSavingCloud) {
+      if (snap && snap.exists && !isSavingCloud) {
         db = normalizeDb(snap.data());
-        localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+        try {
+          localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+        } catch (e) {}
         if (currentUser) renderAllViews();
       }
       setSyncStatus("☁️ Synchronisé", true);
     },
     (err) => {
       console.error("Erreur onSnapshot:", err);
-      setSyncStatus("⚠️ Repli local actif", false);
+      setSyncStatus("⚠️ Local uniquement", false);
     }
   );
 }
 
-/* LOGOS & CACHET SUR IMPRIMABLES */
-function getPrintLogosHtml() {
+/* LOGOS (DISTRICT À GAUCHE, GROUPE À DROITE) & CACHET */
+function getPrintHeaderWithSideLogos(titleText, subtitleText = "") {
   const s = db.settings || {};
-  const imgs = [
-    s.logo_app || "logo-app.jpg",
-    s.logo_district || "logo-district.jpg",
-    s.logo_groupe || "logo.jpg"
-  ].filter(Boolean);
+  const logoDistrict = s.logo_district || "logo-district.jpg";
+  const logoGroupe = s.logo_groupe || "logo.jpg";
 
   return `
-    <div style="display:flex; align-items:center; gap:10px;">
-      ${imgs.map((src) => `
-        <img src="${escapeHtml(src)}" alt="Logo"
-          style="width:44px; height:44px; border-radius:50%; object-fit:cover; border:1px solid #1b4332;"
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1b4332; padding-bottom:10px; margin-bottom:14px; gap:12px;">
+      <div style="flex:0 0 auto;">
+        <img src="${escapeHtml(logoDistrict)}" alt="Logo District"
+          style="width:48px; height:48px; border-radius:50%; object-fit:cover; border:1px solid #1b4332;"
           onerror="this.style.display='none'">
-      `).join("")}
+      </div>
+      <div style="flex:1; text-align:center;">
+        <h2 style="margin:0; font-size:1.15rem; color:#1b4332;">${escapeHtml(titleText)}</h2>
+        ${subtitleText ? `<p style="margin:4px 0 0; font-size:0.85rem; color:#334155;">${escapeHtml(subtitleText)}</p>` : ""}
+      </div>
+      <div style="flex:0 0 auto;">
+        <img src="${escapeHtml(logoGroupe)}" alt="Logo Groupe OBION"
+          style="width:48px; height:48px; border-radius:50%; object-fit:cover; border:1px solid #1b4332;"
+          onerror="this.style.display='none'">
+      </div>
     </div>
   `;
 }
@@ -267,13 +304,17 @@ function handleLogin(e) {
     currentUser = { role, branche: null, loginAt: Date.now() };
   }
 
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+  } catch (err) {}
   showAppShell();
 }
 
 function handleLogout() {
   currentUser = null;
-  sessionStorage.removeItem(SESSION_KEY);
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch (err) {}
   document.getElementById("appShell").style.display = "none";
   document.getElementById("loginScreen").style.display = "flex";
   document.getElementById("loginPin").value = "";
@@ -409,6 +450,7 @@ function renderAllViews() {
   if (!currentUser) return;
   applyRoleVisibility();
   renderDashboard();
+  renderTenueMatriculeSummary();
   renderEffectifs();
   renderQuickAppel();
   renderPresencesHistory();
@@ -434,7 +476,7 @@ function computeGenderStats(list) {
   return { total, garcons, filles, pctG, pctF };
 }
 
-/* 1. TABLEAU DE BORD */
+/* 1. TABLEAU DE BORD, ALERTES & RÉCAPITULATIF TENUE / MATRICULE */
 function renderDashboard() {
   const scouts = getScopedScouts();
   const chefs = getScopedChefs();
@@ -489,18 +531,65 @@ function renderDashboard() {
   const alerts = [];
   const noPhone = scouts.filter((s) => !s.parent_tel || !s.parent_tel.trim());
   const noTenue = scouts.filter((s) => !s.tenue_complete);
-  const paidNoMatricule = scouts.filter((s) => s.cotisation_annuelle === "paye" && (!s.matricule || !s.matricule.trim()));
+  const noMatricule = scouts.filter((s) => !s.matricule || !s.matricule.trim());
 
-  if (noPhone.length) alerts.push(`<div class="alert-item"><span>📱 <strong>${noPhone.length}</strong> jeune(s) sans numéro parent.</span><button class="btn btn-sm btn-secondary" onclick="switchTab('effectifs')">Compléter</button></div>`);
-  if (noTenue.length) alerts.push(`<div class="alert-item info"><span>⚜️ <strong>${noTenue.length}</strong> jeune(s) sans tenue scoute.</span><button class="btn btn-sm btn-info" onclick="switchTab('annonces')">Prévenir parent</button></div>`);
-  if (canManageFinances() && paidNoMatricule.length) alerts.push(`<div class="alert-item danger"><span>🆔 <strong>${paidNoMatricule.length}</strong> jeune(s) marqué(s) payé annuel sans matricule.</span><button class="btn btn-sm btn-danger" onclick="switchTab('finances')">Vérifier</button></div>`);
+  if (noPhone.length) alerts.push(`<div class="alert-item"><span>📱 <strong>${noPhone.length}</strong> jeune(s) sans numéro parent.</span><button type="button" class="btn btn-sm btn-secondary" onclick="switchTab('effectifs')">Compléter</button></div>`);
+  if (noTenue.length) alerts.push(`<div class="alert-item info"><span>⚜️ <strong>${noTenue.length}</strong> jeune(s) sans tenue scoute.</span></div>`);
+  if (noMatricule.length) alerts.push(`<div class="alert-item danger"><span>🆔 <strong>${noMatricule.length}</strong> jeune(s) sans matricule enregistré.</span></div>`);
 
   document.getElementById("dashAlertsContainer").innerHTML = alerts.length
     ? alerts.join("")
     : `<p style="color:var(--muted); font-size:0.88rem;">Aucune alerte bloquante.</p>`;
 }
 
-/* 2. EFFECTIFS & ACCÈS CU */
+function renderTenueMatriculeSummary() {
+  const tbody = document.getElementById("tenueMatriculeTableBody");
+  if (!tbody) return;
+
+  const list = getScopedScouts().filter((s) => !s.tenue_complete || !s.matricule || !s.matricule.trim());
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Tous les jeunes visibles ont une tenue complète et un matricule.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map((s) => {
+    const missingTenue = !s.tenue_complete;
+    const missingMat = !s.matricule || !s.matricule.trim();
+    let situationBadge = "";
+    let presetMsg = "";
+
+    if (missingTenue && missingMat) {
+      situationBadge = `<span class="badge badge-red">Sans tenue & Sans matricule</span>`;
+      presetMsg = `Bonjour chers parents (Groupe OBION), nous vous informons que ${s.prenom} ${s.nom} (${s.branche}) n'a pas encore de tenue scoute complète et que son matricule est en attente de régularisation. Merci de nous contacter.`;
+    } else if (missingTenue) {
+      situationBadge = `<span class="badge badge-amber">Sans tenue</span>`;
+      presetMsg = `Bonjour chers parents (Groupe OBION), nous vous signalons que ${s.prenom} ${s.nom} (${s.branche}) n'a pas encore de tenue scoute complète. Merci de prévoir de la régulariser pour les activités.`;
+    } else {
+      situationBadge = `<span class="badge badge-blue">Sans matricule</span>`;
+      presetMsg = `Bonjour chers parents (Groupe OBION), le matricule de ${s.prenom} ${s.nom} (${s.branche}) n'est pas encore enregistré. Merci de vous rapprocher de la trésorerie / maîtrise pour le suivi.`;
+    }
+
+    const waPhone = normalizeWaPhone(s.parent_tel);
+    const waHref = waPhone ? `https://wa.me/${waPhone}?text=${encodeURIComponent(presetMsg)}` : "";
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
+        <td>${escapeHtml(s.branche)}</td>
+        <td>${situationBadge}</td>
+        <td>${escapeHtml(s.parent_nom || "Parent")} — ${escapeHtml(s.parent_tel || "Non renseigné")}</td>
+        <td>
+          <div style="font-size:0.78rem; color:#334155; margin-bottom:6px;">${escapeHtml(presetMsg)}</div>
+          ${waHref
+            ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-success">Envoyer sur WhatsApp</a>`
+            : `<span class="badge badge-gray">Numéro absent</span>`}
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
+/* 2. EFFECTIFS & AJOUT DE CHEFS / ACCÈS CU */
 function renderEffectifs() {
   const filterBr = document.getElementById("filterScoutBranche").value;
   const query = (document.getElementById("searchScoutInput").value || "").trim().toLowerCase();
@@ -656,7 +745,6 @@ async function saveScout(e, id) {
 
 async function deleteScout(id) {
   if (!canManageStructure()) return;
-  if (!confirm("Supprimer cette fiche jeune ?")) return;
   db.scouts = db.scouts.filter((s) => s.id !== id);
   await persistDb("Suppression jeune", id);
 }
@@ -722,7 +810,7 @@ async function deleteChef(id) {
   await persistDb("Suppression chef", id);
 }
 
-/* 3. APPELS, MESSAGES AUTO (GÉNÉRAL & ABSENTS) & IMPRESSION AVEC CACHET + LOGOS */
+/* 3. APPELS, MESSAGES AUTO & IMPRESSION AVEC LOGOS GAUCHE/DROITE + CACHET */
 function renderQuickAppel() {
   const br = document.getElementById("appelBrancheSelect").value;
   const list = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
@@ -835,13 +923,7 @@ function printCurrentAppelSheet() {
   const targets = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
 
   triggerPrintHtml(`
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1b4332; padding-bottom:10px; margin-bottom:14px;">
-      <div>
-        <h2>LISTE DE PRÉSENCE — GROUPE SCOUT OBION</h2>
-        <p><strong>Branche :</strong> ${escapeHtml(br)} · <strong>Date :</strong> ${escapeHtml(date)} · <strong>Thème :</strong> ${escapeHtml(theme)}</p>
-      </div>
-      ${getPrintLogosHtml()}
-    </div>
+    ${getPrintHeaderWithSideLogos("LISTE DE PRÉSENCE — GROUPE SCOUT OBION", `Branche : ${br} · Date : ${date} · Thème : ${theme}`)}
     <table style="width:100%; border-collapse:collapse;">
       <thead>
         <tr>
@@ -917,7 +999,7 @@ async function deletePresence(id) {
   await persistDb("Suppression appel", id);
 }
 
-/* 4. PROGRAMME ANNUEL & IMPRESSION AVEC CACHET + LOGOS */
+/* 4. PROGRAMME ANNUEL & IMPRESSION AVEC LOGOS GAUCHE/DROITE + CACHET */
 function renderProgrammeAnnuel() {
   const cibleFilter = document.getElementById("filterActiviteCible").value;
   let list = getScopedProgramme();
@@ -1017,13 +1099,7 @@ function printProgrammeAnnuel() {
   const list = getScopedProgramme();
   const scopeLabel = isCU() ? `CU — Branche ${currentUser.branche}` : "Groupe OBION";
   triggerPrintHtml(`
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1b4332; padding-bottom:10px; margin-bottom:14px;">
-      <div>
-        <h2>PROGRAMME D'ACTIVITÉS ANNUEL — GROUPE OBION</h2>
-        <p><strong>Périmètre :</strong> ${escapeHtml(scopeLabel)}</p>
-      </div>
-      ${getPrintLogosHtml()}
-    </div>
+    ${getPrintHeaderWithSideLogos("PROGRAMME D'ACTIVITÉS ANNUEL — GROUPE OBION", `Périmètre : ${scopeLabel}`)}
     <table style="width:100%; border-collapse:collapse;">
       <thead>
         <tr>
@@ -1050,7 +1126,7 @@ function printProgrammeAnnuel() {
   `);
 }
 
-/* 5. CAMPS & AUTORISATION PARENTALE AVEC LOGOS + CACHET */
+/* 5. CAMPS & AUTORISATION PARENTALE AVEC LOGOS GAUCHE/DROITE + CACHET */
 function renderCamps() {
   const scope = document.getElementById("filterCampScope").value;
   let list = getScopedCamps();
@@ -1157,10 +1233,7 @@ function printAutorisationCamp(campId) {
   const camp = db.camps.find((c) => c.id === campId);
   if (!camp) return;
   triggerPrintHtml(`
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1b4332; padding-bottom:10px; margin-bottom:14px;">
-      <div><h2>AUTORISATION PARENTALE — GROUPE OBION</h2></div>
-      ${getPrintLogosHtml()}
-    </div>
+    ${getPrintHeaderWithSideLogos("AUTORISATION PARENTALE — GROUPE OBION", camp.nom)}
     <p style="margin:12px 0;">Je soussigné(e), parent / tuteur légal, autorise mon enfant à participer au camp :</p>
     <p><strong>Camp :</strong> ${escapeHtml(camp.nom)}</p>
     <p><strong>Type / Branche :</strong> ${escapeHtml(camp.type)} ${camp.branche ? "— " + escapeHtml(camp.branche) : ""}</p>
@@ -1271,7 +1344,7 @@ async function deleteMateriel(id) {
   await persistDb("Suppression matériel", id);
 }
 
-/* 8. FINANCES, COTISATIONS PERSONNALISÉES, PAIEMENTS ACTIVITÉS/CAMPS, DONS & REÇUS */
+/* 8. FINANCES, COTISATIONS, PAIEMENTS ACTIVITÉS/CAMPS, DONS & REÇUS */
 function renderWaveTresorerieBox() {
   const box = document.getElementById("waveTresorerieBox");
   const url = String((db.settings && db.settings.wave_url) || "").trim();
@@ -1355,12 +1428,12 @@ function renderCotisationsSuivi() {
           </div>
         </td>
         <td>
-          <button type="button" class="btn btn-sm ${cotPaye ? "btn-success" : "btn-secondary"}" onclick="toggleCustomCotPayment('${s.id}', '${activeCot.id}', '${escapeHtml(activeCot.label)}', ${activeCot.montant})">
+          <button type="button" class="btn btn-sm ${cotPaye ? "btn-success" : "btn-secondary"}" onclick="toggleCustomCotPaymentByKey('${s.id}', '${activeCot.id}')">
             ${cotPaye ? "✅ Payée" : "❌ Non payée"}
           </button>
         </td>
         <td>
-          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForScout('${s.id}', '${escapeHtml(activeCot.label)}', ${activeCot.montant})">🧾 Reçu</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForCot('${s.id}', '${activeCot.id}')">🧾 Reçu</button>
         </td>
       </tr>
     `;
@@ -1419,35 +1492,47 @@ async function toggleAnnuelleWithMatricule(scoutId) {
   }
 }
 
-async function toggleCustomCotPayment(scoutId, cotId, label, montant) {
+async function toggleCustomCotPaymentByKey(scoutId, cotId) {
   if (!canManageFinances()) return;
   const scout = db.scouts.find((s) => s.id === scoutId);
-  if (!scout) return;
-  const key = `${cotId}__${scoutId}`;
+  const opts = getAvailableCotisationsOptions();
+  const activeCot = opts.find((o) => o.id === cotId) || opts[0];
+  if (!scout || !activeCot) return;
+
+  const key = `${activeCot.id}__${scoutId}`;
   const nextState = !db.cotisationPayments[key];
   db.cotisationPayments[key] = nextState;
 
-  if (nextState && Number(montant || 0) > 0) {
+  if (nextState && Number(activeCot.montant || 0) > 0) {
     db.finances.unshift({
       id: uid("fin"),
       date: new Date().toISOString().slice(0, 10),
       type: "entree",
       categorie: "Cotisation",
-      libelle: `${label} — ${scout.nom} ${scout.prenom}`,
-      montant: Number(montant)
+      libelle: `${activeCot.label} — ${scout.nom} ${scout.prenom}`,
+      montant: Number(activeCot.montant)
     });
   }
-  await persistDb(nextState ? "Paiement cotisation" : "Retrait paiement cotisation", `${label} — ${scout.nom} ${scout.prenom}`);
+  await persistDb(nextState ? "Paiement cotisation" : "Retrait paiement cotisation", `${activeCot.label} — ${scout.nom} ${scout.prenom}`);
+}
+
+function openReceiptForCot(scoutId, cotId) {
+  const opts = getAvailableCotisationsOptions();
+  const activeCot = opts.find((o) => o.id === cotId) || opts[0];
+  openReceiptForScout(scoutId, activeCot ? activeCot.label : "Cotisation", activeCot ? activeCot.montant : 500);
 }
 
 /* PAIEMENTS PAR ACTIVITÉ OU CAMP À PRIX FIXÉ */
-function renderActivityPaymentsList() {
-  if (!canManageFinances()) return;
-  const paidActs = [
+function getPaidActivitiesList() {
+  return [
     ...db.activites.filter((a) => Number(a.tarif || 0) > 0).map((a) => ({ id: a.id, title: `[Programme] ${a.titre}`, price: Number(a.tarif || 0) })),
     ...db.camps.filter((c) => Number(c.frais || 0) > 0).map((c) => ({ id: c.id, title: `[Camp] ${c.nom}`, price: Number(c.frais || 0) }))
   ];
+}
 
+function renderActivityPaymentsList() {
+  if (!canManageFinances()) return;
+  const paidActs = getPaidActivitiesList();
   const sel = document.getElementById("paidActivitySelect");
   const prev = sel.value;
   sel.innerHTML = paidActs.length
@@ -1474,37 +1559,44 @@ function renderActivityPaymentsList() {
         <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
         <td>${escapeHtml(s.branche)}</td>
         <td>
-          <button type="button" class="btn btn-sm ${isPaid ? "btn-success" : "btn-warning"}" onclick="toggleActivityPayment('${current.id}', '${escapeHtml(current.title)}', ${current.price}, '${s.id}')">
+          <button type="button" class="btn btn-sm ${isPaid ? "btn-success" : "btn-warning"}" onclick="toggleActivityPaymentById('${current.id}', '${s.id}')">
             ${isPaid ? "✅ Payé" : "❌ Non payé"}
           </button>
         </td>
         <td>
-          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForScout('${s.id}', '${escapeHtml(current.title)}', ${current.price})">🧾 Reçu</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForActivity('${s.id}', '${current.id}')">🧾 Reçu</button>
         </td>
       </tr>
     `;
   }).join("");
 }
 
-async function toggleActivityPayment(actId, title, price, scoutId) {
+async function toggleActivityPaymentById(actId, scoutId) {
   if (!canManageFinances()) return;
   const scout = db.scouts.find((s) => s.id === scoutId);
-  if (!scout) return;
-  const key = `${actId}__${scoutId}`;
+  const current = getPaidActivitiesList().find((x) => x.id === actId);
+  if (!scout || !current) return;
+
+  const key = `${current.id}__${scoutId}`;
   const nextPaid = !db.activityPayments[key];
   db.activityPayments[key] = nextPaid;
 
-  if (nextPaid && Number(price || 0) > 0) {
+  if (nextPaid && Number(current.price || 0) > 0) {
     db.finances.unshift({
       id: uid("fin"),
       date: new Date().toISOString().slice(0, 10),
       type: "entree",
       categorie: "Activité / Camp",
-      libelle: `${title} — ${scout.nom} ${scout.prenom}`,
-      montant: Number(price)
+      libelle: `${current.title} — ${scout.nom} ${scout.prenom}`,
+      montant: Number(current.price)
     });
   }
-  await persistDb(nextPaid ? "Paiement activité/camp" : "Annulation paiement activité/camp", `${title} — ${scout.nom} ${scout.prenom}`);
+  await persistDb(nextPaid ? "Paiement activité/camp" : "Annulation paiement activité/camp", `${current.title} — ${scout.nom} ${scout.prenom}`);
+}
+
+function openReceiptForActivity(scoutId, actId) {
+  const current = getPaidActivitiesList().find((x) => x.id === actId);
+  openReceiptForScout(scoutId, current ? current.title : "Activité", current ? current.price : 0);
 }
 
 function renderFinances() {
@@ -1673,7 +1765,7 @@ async function deleteDon(id) {
   await persistDb("Suppression don", id);
 }
 
-/* REÇUS AVEC LOGOS & CACHET */
+/* REÇUS AVEC LOGOS GAUCHE/DROITE + CACHET */
 function openReceiptModal(financeId = null) {
   if (!canManageFinances()) return;
   const f = financeId ? db.finances.find((x) => x.id === financeId) : null;
@@ -1735,24 +1827,13 @@ function buildReceiptPreview(e) {
     `Montant : ${formatMoney(montant)}`
   ].join("\n");
 
-  const cachetHtml = db.settings.cachet_actif
-    ? `<div class="cachet-box">GROUPE OBION · TRÉSORERIE VALIDÉE</div>`
-    : "";
-
   document.getElementById("receiptPreviewArea").innerHTML = `
     <div class="receipt-box" id="printableReceiptCard">
-      <div class="receipt-header">
-        ${getPrintLogosHtml()}
-        <div>
-          <h4 style="color:var(--primary);">REÇU DE PAIEMENT — GROUPE OBION</h4>
-          <small>Date : ${escapeHtml(date)}</small>
-        </div>
-        <span class="badge badge-green">Payé</span>
-      </div>
+      ${getPrintHeaderWithSideLogos("REÇU DE PAIEMENT — GROUPE OBION", `Date : ${date}`)}
       <p><strong>Membre :</strong> ${escapeHtml(nomJeune)} ${brancheJeune ? `(${escapeHtml(brancheJeune)})` : ""}</p>
       <p><strong>Motif :</strong> ${escapeHtml(motif)} ${detail ? `— ${escapeHtml(detail)}` : ""}</p>
       <p style="margin-top:8px; font-size:1.05rem;"><strong>Montant :</strong> ${formatMoney(montant)}</p>
-      ${cachetHtml}
+      ${getPrintCachetHtml("REÇU TRÉSORERIE VALIDÉ")}
     </div>
     <div class="actions-row" style="margin-top:12px;">
       <button type="button" class="btn btn-sm btn-success" onclick="copyLastReceipt()">📋 Copier le reçu</button>
@@ -1780,13 +1861,7 @@ function printPointMensuel() {
   const sorties = rows.filter((f) => f.type === "sortie").reduce((a, b) => a + Number(b.montant || 0), 0);
 
   triggerPrintHtml(`
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1b4332; padding-bottom:10px; margin-bottom:12px;">
-      <div>
-        <h2>POINT FINANCIER MENSUEL (${escapeHtml(month)}) — GROUPE OBION</h2>
-        <p>Entrées : <strong>${formatMoney(entrees)}</strong> · Sorties : <strong>${formatMoney(sorties)}</strong> · Solde du mois : <strong>${formatMoney(entrees - sorties)}</strong></p>
-      </div>
-      ${getPrintLogosHtml()}
-    </div>
+    ${getPrintHeaderWithSideLogos(`POINT FINANCIER MENSUEL (${month}) — GROUPE OBION`, `Entrées : ${formatMoney(entrees)} · Sorties : ${formatMoney(sorties)} · Solde : ${formatMoney(entrees - sorties)}`)}
     <table style="width:100%; border-collapse:collapse;">
       <thead>
         <tr>

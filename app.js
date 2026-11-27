@@ -239,13 +239,20 @@ function getPrintHeaderWithSideLogos(titleText, subtitleText = "") {
   `;
 }
 
-function getPrintCachetHtml(label = "GROUPE OBION · DIRECTION & TRÉSORERIE") {
+function getPrintCachetHtml(label = "CACHET NUMÉRIQUE · CHEF DE GROUPE") {
   if (!db.settings || !db.settings.cachet_actif) return "";
+  const cgNom = (db.settings && db.settings.cg_nom) || "Chef de Groupe Obion";
+  const cgTel = (db.settings && db.settings.cg_tel) || "";
+
   return `
     <div style="margin-top:20px; display:flex; justify-content:flex-end;">
-      <div style="border:2px solid #1b4332; color:#1b4332; padding:8px 14px; border-radius:8px; font-weight:700; font-size:0.82rem; transform:rotate(-2deg);">
-        ${escapeHtml(label)}<br>
-        <span style="font-size:0.72rem; font-weight:600;">${escapeHtml(db.settings.cg_nom || "Chef de Groupe Obion")}</span>
+      <div style="border:2px solid #1b4332; background:#f8fafc; color:#1b4332; padding:10px 16px; border-radius:6px; font-size:0.82rem; line-height:1.45; min-width:230px; text-align:left; transform:none;">
+        <div style="font-weight:700; text-transform:uppercase; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:5px;">
+          ${escapeHtml(label)}
+        </div>
+        <div><strong>Groupe :</strong> OBION</div>
+        <div><strong>Chef de Groupe :</strong> ${escapeHtml(cgNom)}</div>
+        ${cgTel ? `<div><strong>Contact :</strong> ${escapeHtml(cgTel)}</div>` : ""}
       </div>
     </div>
   `;

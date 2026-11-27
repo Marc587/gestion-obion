@@ -245,7 +245,7 @@ function getPrintCachetHtml(label = "CACHET NUMÉRIQUE · CHEF DE GROUPE") {
   const cgTel = (db.settings && db.settings.cg_tel) || "";
 
   return `
-    <div style="margin-top:20px; display:flex; justify-content:flex-end;">
+    <div style="margin-top:16px; display:flex; justify-content:flex-end;">
       <div style="border:2px solid #1b4332; background:#f8fafc; color:#1b4332; padding:10px 16px; border-radius:6px; font-size:0.82rem; line-height:1.45; min-width:230px; text-align:left; transform:none;">
         <div style="font-weight:700; text-transform:uppercase; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:5px;">
           ${escapeHtml(label)}
@@ -258,10 +258,129 @@ function getPrintCachetHtml(label = "CACHET NUMÉRIQUE · CHEF DE GROUPE") {
   `;
 }
 
-function triggerPrintHtml(html) {
-  const pz = document.getElementById("printZone");
-  pz.innerHTML = `<div style="font-family:sans-serif; padding:12px;">${html}</div>`;
-  window.print();
+function generateReceiptNumber(dateStr) {
+  const year = String(dateStr || new Date().toISOString().slice(0, 10)).slice(0, 4) || "2026";
+  const seq = String((db.finances ? db.finances.length : 0) + 1).padStart(4, "0");
+  return `OBION-${year}-${seq}`;
+}
+
+function buildSpecialReceiptHtml({ numero, date, nomJeune, brancheJeune, matricule, motif, detail, montant }) {
+  const cgNom = (db.settings && db.settings.cg_nom) || "Chef de Groupe Obion";
+  const cgTel = (db.settings && db.settings.cg_tel) || "";
+
+  return `
+    <div class="receipt-box" id="printableReceiptCard" style="border:2px solid #1b4332; background:#ffffff; padding:20px; border-radius:10px;">
+      ${getPrintHeaderWithSideLogos("REÇU OFFICIEL DE PAIEMENT", "GROUPE SCOUT OBION · DISTRICT")}
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:#f4f6f5; padding:8px 12px; border-radius:6px; margin-bottom:14px; font-size:0.84rem;">
+        <div><strong>N° Reçu :</strong> ${escapeHtml(numero)}</div>
+        <div><strong>Date :</strong> ${escapeHtml(date)}</div>
+        <div><span class="badge badge-green">PAIEMENT ENREGISTRÉ</span></div>
+      </div>
+      <p><strong>Jeune / Membre :</strong> ${escapeHtml(nomJeune)}${brancheJeune ? ` — Branche <strong>${escapeHtml(brancheJeune)}</strong>` : ""}</p>
+      ${matricule ? `<p><strong>Matricule :</strong> ${escapeHtml(matricule)}</p>` : ""}
+      <p><strong>Motif :</strong> ${escapeHtml(motif)}${detail ? ` (${escapeHtml(detail)})` : ""}</p>
+      <p style="margin-top:10px; font-size:1.1rem; color:#1b4332;"><strong>Montant perçu :</strong> ${formatMoney(montant)}</p>
+      <p style="margin-top:10px; font-size:0.78rem; color:#64748b;">
+        Ce reçu atteste de l'enregistrement de l'opération dans les registres du Groupe Scout OBION.
+      </p>
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-top:14px;">
+        <div style="font-size:0.82rem; color:#334155;">
+          <strong>Validation Trésorerie / Groupe</strong><br>
+          <span>${escapeHtml(cgNom)}${cgTel ? " · " + escapeHtml(cgTel) : ""}</span>
+        </div>
+        ${getPrintCachetHtml("CACHET NUMÉRIQUE · CHEF DE GROUPE")}
+      </div>
+    </div>
+  `;
+}
+
+function openReceiptModal(financeId = null) {
+  if (!canManageFinances()) return;
+  const f = financeId ? db.finances.find((x) => x.id === financeId) : null;
+  const scoutOptions = db.scouts.map((s) => `<option value="${s.id}">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)} (${escapeHtml(s.branche)})</option>`).join("");
+  const defaultDate = f && f.date ? f.date : new Date().toISOString().slice(0, 10);
+
+  openModal("Générer un reçu de paiement", `
+    <form onsubmit="buildReceiptPreview(event)">
+      <div class="form-row">
+        <div class="form-group"><label>Jeune / Membre</label><select id="rc_scout">${scoutOptions}</select></div>
+        <div class="form-group">
+          <label>Motif</label>
+          <select id="rc_motif">
+            <option value="Cotisation annuelle">Cotisation annuelle</option>
+            <option value="Cotisation mensuelle">Cotisation mensuelle</option>
+            <option value="Paiement d'activité">Paiement d'activité</option>
+            <option value="Participation camp">Participation camp</option>
+            <option value="Autre cotisation">Autre cotisation</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>N° Reçu</label><input type="text" id="rc_numero" value="${escapeHtml(generateReceiptNumber(defaultDate))}" required></div>
+        <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="rc_montant" min="1" value="${f ? Number(f.montant || 0) : Number(db.settings.cot_mens_j || 500)}" required></div>
+        <div class="form-group"><label>Date *</label><input type="date" id="rc_date" value="${escapeHtml(defaultDate)}" required></div>
+      </div>
+      <div class="form-group"><label>Précision / Référence</label><input type="text" id="rc_detail" value="${escapeHtml(f ? f.libelle : "")}"></div>
+      <button type="submit" class="btn btn-accent">Prévisualiser le reçu</button>
+    </form>
+    <div id="receiptPreviewArea" style="margin-top:16px;"></div>
+  `);
+}
+
+function openReceiptForScout(scoutId, motifLabel, montantVal) {
+  openReceiptModal();
+  setTimeout(() => {
+    const sel = document.getElementById("rc_scout");
+    const det = document.getElementById("rc_detail");
+    const mnt = document.getElementById("rc_montant");
+    if (sel) sel.value = scoutId;
+    if (det) det.value = motifLabel;
+    if (mnt) mnt.value = montantVal;
+  }, 30);
+}
+
+function buildReceiptPreview(e) {
+  e.preventDefault();
+  const scout = db.scouts.find((s) => s.id === document.getElementById("rc_scout").value);
+  const numero = document.getElementById("rc_numero").value.trim() || generateReceiptNumber(document.getElementById("rc_date").value);
+  const motif = document.getElementById("rc_motif").value;
+  const montant = Number(document.getElementById("rc_montant").value || 0);
+  const date = document.getElementById("rc_date").value;
+  const detail = document.getElementById("rc_detail").value.trim();
+
+  const nomJeune = scout ? `${scout.nom} ${scout.prenom}` : "Membre";
+  const brancheJeune = scout ? scout.branche : "";
+  const matricule = scout && scout.matricule ? scout.matricule : "";
+
+  lastReceiptText = [
+    `REÇU OFFICIEL DE PAIEMENT — GROUPE SCOUT OBION`,
+    `N° Reçu : ${numero}`,
+    `Date : ${date}`,
+    `Membre : ${nomJeune}${brancheJeune ? " (" + brancheJeune + ")" : ""}`,
+    matricule ? `Matricule : ${matricule}` : "",
+    `Motif : ${motif}${detail ? " — " + detail : ""}`,
+    `Montant : ${formatMoney(montant)}`
+  ].filter(Boolean).join("\n");
+
+  document.getElementById("receiptPreviewArea").innerHTML = `
+    ${buildSpecialReceiptHtml({ numero, date, nomJeune, brancheJeune, matricule, motif, detail, montant })}
+    <div class="actions-row" style="margin-top:12px;">
+      <button type="button" class="btn btn-sm btn-success" onclick="copyLastReceipt()">📋 Copier le reçu</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="printReceiptCard()">🖨️ Imprimer / PDF</button>
+    </div>
+  `;
+}
+
+function copyLastReceipt() {
+  if (!lastReceiptText) return;
+  navigator.clipboard?.writeText(lastReceiptText);
+  alert("Reçu copié !");
+}
+
+function printReceiptCard() {
+  const card = document.getElementById("printableReceiptCard");
+  if (!card) return;
+  triggerPrintHtml(card.outerHTML);
 }
 
 /* AUTHENTIFICATION & ACCÈS INDIVIDUEL CU */

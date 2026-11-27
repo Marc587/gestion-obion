@@ -393,13 +393,19 @@ function handleLogin(e) {
   e.preventDefault();
   const role = document.getElementById("loginRole").value;
   const branche = role === "cu" ? document.getElementById("loginBranch").value : null;
-  const pin = document.getElementById("loginPin").value.trim();
+  const pin = String(document.getElementById("loginPin").value || "").trim();
+
+  const pins = (db.settings && db.settings.pins) || {};
 
   if (role === "cu") {
-    const cuChefs = db.chefs.filter((c) => c.branche === branche);
-    const individualMatch = cuChefs.find((c) => c.pin && String(c.pin).trim() === pin);
-    const hasAnyIndividualPin = cuChefs.some((c) => c.pin && String(c.pin).trim().length > 0);
-    const fallbackPin = (db.settings.pins && db.settings.pins.cu) || "3333";
+    const cuChefs = (db.chefs || []).filter((c) => String(c.branche || "").trim() === branche);
+    const individualMatch = cuChefs.find(
+      (c) => c.pin !== undefined && c.pin !== null && String(c.pin).trim() !== "" && String(c.pin).trim() === pin
+    );
+    const hasAnyIndividualPin = cuChefs.some(
+      (c) => c.pin !== undefined && c.pin !== null && String(c.pin).trim() !== ""
+    );
+    const fallbackCuPin = String(pins.cu || "3333").trim();
 
     if (individualMatch) {
       currentUser = {
@@ -409,7 +415,7 @@ function handleLogin(e) {
         chefNom: individualMatch.nom,
         loginAt: Date.now()
       };
-    } else if (!hasAnyIndividualPin && pin === fallbackPin) {
+    } else if (!hasAnyIndividualPin && pin === fallbackCuPin) {
       currentUser = {
         role: "cu",
         branche,
@@ -422,7 +428,9 @@ function handleLogin(e) {
       return;
     }
   } else {
-    const expectedPin = (db.settings.pins && db.settings.pins[role]) || (role === "cg" ? "1111" : "2222");
+    const configuredPin = String(pins[role] || "").trim();
+    const expectedPin = configuredPin || (role === "cg" ? "1111" : "2222");
+
     if (pin !== expectedPin) {
       alert("Code PIN incorrect pour ce rôle.");
       return;

@@ -11,6 +11,10 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const firestoreDb = firebase.firestore();
+firestoreDb.settings({
+  experimentalForceLongPolling: true,
+  useFetchStreams: false
+});
 firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
@@ -650,7 +654,6 @@ function renderCotisationsSuivi() {
   const groupSel = document.getElementById("cotTargetGroupSelect");
   if (!box || !typeSel || !groupSel) return;
 
-  // Synchroniser la liste des cotisations ponctuelles dans le sélecteur
   const baseValues = ["annuelle", "mensuelle"];
   Array.from(typeSel.options).forEach((opt) => {
     if (!baseValues.includes(opt.value)) opt.remove();
@@ -978,7 +981,6 @@ function renderSmartRemindersPanel() {
   if (!box) return;
   const alerts = [];
 
-  // 1. Cotisation nationale (alerte dès J-14)
   if (db.settings.cot_nationale_deadline) {
     const dLeft = daysUntilDate(db.settings.cot_nationale_deadline);
     if (dLeft !== null && dLeft <= 14 && dLeft >= -3) {
@@ -992,7 +994,6 @@ function renderSmartRemindersPanel() {
     }
   }
 
-  // 2. Activités avec date limite / date proche (J-14)
   (db.activites || []).forEach((a) => {
     const refDate = a.date_limite_paiement || a.date;
     const dLeft = daysUntilDate(refDate);
@@ -1007,7 +1008,6 @@ function renderSmartRemindersPanel() {
     }
   });
 
-  // 3. Programme : rappel d'envoi d'information aux parents
   (db.programmeEvents || []).forEach((ev) => {
     const dLeft = daysUntilDate(ev.date);
     const notice = Number(ev.rappelJoursAvant || 7);
@@ -1023,7 +1023,6 @@ function renderSmartRemindersPanel() {
     }
   });
 
-  // 4. Rappel CU pour réunions / activités proches (J-1 / J-0)
   (db.activites || []).forEach((a) => {
     if (!a.forCu) return;
     const dLeft = daysUntilDate(a.date);
@@ -1040,7 +1039,6 @@ function renderSmartRemindersPanel() {
     }
   });
 
-  // 5. 3 absences consécutives -> rencontre parents
   (db.scouts || []).forEach((s) => {
     const streak = getConsecutiveAbsences(s.id);
     if (streak >= 3 && !db.parentMeetingsDone[s.id]) {

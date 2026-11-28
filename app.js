@@ -15,7 +15,6 @@ firestoreDb.settings({
   experimentalForceLongPolling: true,
   useFetchStreams: false
 });
-firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
 const BACKUP_KEY = "obion_erp_backup_v1";

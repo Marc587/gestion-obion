@@ -11,3 +11,19 @@ input,select,textarea{width:100%;padding:11px 13px;border:1px solid #dce3eb;bord
 /* Messages de sécurité / connexion */
 .error-text { color: #b42318; font-size: .9rem; line-height: 1.4; margin-top: .6rem; }
 #loginForm button[disabled] { opacity: .65; cursor: wait; }
+
+/* Cachet numérique imprimé sur les documents */
+.print-document{font-family:Arial,sans-serif;color:#111;padding:18px;min-height:90vh}.print-document h1{font-size:20px;text-align:center;margin-bottom:8px}.print-document h2{font-size:17px;text-align:center;margin:10px 0 18px}.print-table{width:100%;border-collapse:collapse;margin-top:18px}.print-table th,.print-table td{border:1px solid #444;padding:8px;text-align:left;font-size:11pt}.print-signature{display:flex;justify-content:flex-end;margin-top:36px;page-break-inside:avoid}.digital-stamp{width:190px;height:190px;border:3px solid #174e9a;border-radius:50%;color:#174e9a;display:flex;align-items:center;justify-content:center;text-align:center;transform:rotate(-5deg);font-family:Georgia,serif}.stamp-inner{width:160px;height:160px;border:1px solid #174e9a;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px}.stamp-inner strong{font-size:10px}.stamp-inner span{font-size:8px}.stamp-inner b{font-size:9px;border-top:1px solid #174e9a;border-bottom:1px solid #174e9a;padding:3px 0;margin:2px 0}@media print{.print-document{padding:0}.print-signature{margin-top:30px}.digital-stamp{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+
+/* Suivi des tenues scoutes */
+.tenue-select { min-width: 175px; max-width: 100%; }
+.tenue-stats { margin-bottom: 14px; }
+.tenue-stats .stat-box { padding: 13px 15px; }
+.tenue-stats .stat-value { font-size: 1.45rem; }
+@media (max-width: 640px) {
+  .tenue-select { min-width: 150px; }
+  .tenue-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Modules avancés SCOUT MANAGER */
+.border-bottom{border-bottom:1px solid var(--border);padding:5px 0}.py-1{padding-top:5px;padding-bottom:5px}.print-document{position:relative;border:1px solid #ddd;padding:24px;min-height:420px;background:white;color:#222}.digital-stamp{border:3px double #234b87;color:#234b87;border-radius:50%;width:190px;height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:11px;font-weight:700;line-height:1.5;margin:28px 0 0 auto;padding:12px;transform:rotate(-8deg)}@media print{.print-document{border:0}.digital-stamp{print-color-adjust:exact;-webkit-print-color-adjust:exact}}

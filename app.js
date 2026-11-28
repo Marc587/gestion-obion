@@ -11,6 +11,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const firestoreDb = firebase.firestore();
+firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
 const BACKUP_KEY = "obion_erp_backup_v1";
@@ -24,112 +25,12 @@ function cloneSafe(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-const defaultData = {
-  scouts: [],
-  chefs: [],
-  camps: [],
-  activites: [],
-  presences: [],
-  finances: [],
-  dons: [],
-  materiel: [],
-  auditLog: [],
-  cotisationsCustom: [],
-  cotisationPayments: {},
-  activityPayments: {},
-  settings: {
-    cg_nom: "Chef de Groupe Obion",
-    cg_tel: "",
-    wave_url: "",
-    logo_app: "logo-app.jpg",
-    logo_district: "logo-district.jpg",
-    logo_groupe: "logo.jpg",
-    cachet_actif: true,
-    cot_j_total: 2500,
-    cot_j_ascci: 2085,
-    cot_j_groupe: 415,
-    cot_mens_j: 500,
-    pins: {
-      cg: "1111",
-      financier: "2222",
-      cu: "3333"
-    },
-    prog: {
-      Oisillon: "Découverte, Petit pas, Aile déployée",
-      Meute: "Patte tendre, 1re étoile, 2e étoile, 3e étoile",
-      Troupe: "Aspirant, 2e classe, 1re classe, Brevet",
-      Chemin: "En route, Compagnon de route, Engagement",
-      Route: "Novice, Routier engagé, Service communautaire"
-    }
-  }
-};
-
-function normalizeDb(raw) {
-  const base = cloneSafe(defaultData);
-  if (!raw || typeof raw !== "object") return base;
-  return {
-    scouts: Array.isArray(raw.scouts) ? raw.scouts : [],
-    chefs: Array.isArray(raw.chefs) ? raw.chefs : [],
-    camps: Array.isArray(raw.camps) ? raw.camps : [],
-    activites: Array.isArray(raw.activites) ? raw.activites : [],
-    presences: Array.isArray(raw.presences) ? raw.presences : [],
-    finances: Array.isArray(raw.finances) ? raw.finances : [],
-    dons: Array.isArray(raw.dons) ? raw.dons : [],
-    materiel: Array.isArray(raw.materiel) ? raw.materiel : [],
-    auditLog: Array.isArray(raw.auditLog) ? raw.auditLog : [],
-    cotisationsCustom: Array.isArray(raw.cotisationsCustom) ? raw.cotisationsCustom : [],
-    cotisationPayments: raw.cotisationPayments && typeof raw.cotisationPayments === "object" ? raw.cotisationPayments : {},
-    activityPayments: raw.activityPayments && typeof raw.activityPayments === "object" ? raw.activityPayments : {},
-    settings: {
-      ...base.settings,
-      ...(raw.settings || {}),
-      pins: {
-        ...base.settings.pins,
-        ...((raw.settings && raw.settings.pins) || {})
-      },
-      prog: {
-        ...base.settings.prog,
-        ...((raw.settings && raw.settings.prog) || {})
-      }
-    }
-  };
-}
-
-function readLocalBackup() {
-  try {
-    return normalizeDb(JSON.parse(localStorage.getItem(BACKUP_KEY) || "null"));
-  } catch (e) {
-    return cloneSafe(defaultData);
-  }
-}
-
-function readSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
-  } catch (e) {
-    return null;
-  }
-}
-
-let db = readLocalBackup();
-let currentUser = readSession();
-let currentActiveTab = "dashboard";
-let isSavingCloud = false;
-let unsubscribeRealtime = null;
-let quickAppelStates = {};
-let lastReceiptText = "";
-
 function uid(prefix = "id") {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function formatMoney(val) {
-  const n = Number(val || 0);
-  return `${n.toLocaleString("fr-FR")} FCFA`;
-}
-
-function escapeHtml(str) {
-  return String(str ?? "")
+function escapeHtml(value) {
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -137,2199 +38,1200 @@ function escapeHtml(str) {
     .replaceAll("'", "&#39;");
 }
 
-function normalizeWaPhone(rawPhone) {
-  const digits = String(rawPhone || "").replace(/[^0-9]/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("00225")) return digits.slice(2);
-  if (digits.startsWith("225")) return digits;
-  return `225${digits}`;
+function formatMoney(amount) {
+  const n = Number(amount || 0);
+  return `${n.toLocaleString("fr-FR")} FCFA`;
 }
 
-function setSyncStatus(text, ok = true) {
-  const el = document.getElementById("syncStatus");
+function normalizeWaPhone(phoneRaw) {
+  const digits = String(phoneRaw || "").replace(/\D+/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("225")) return digits;
+  if (digits.length === 10) return `225${digits}`;
+  return digits;
+}
+
+const defaultData = {
+  scouts: [],
+  chefs: [
+    { id: "chef_meute", nom: "Akissi Kouamé", branche: "Meute", tel: "" },
+    { id: "chef_troupe", nom: "Yao Konan", branche: "Troupe", tel: "" }
+  ],
+  activites: [],
+  programmeEvents: [],
+  presences: [],
+  finances: [],
+  messageLogs: [],
+  cuAckLogs: {},
+  parentMeetingsDone: {},
+  cotisationsCustom: [],
+  cotisationPayments: {},
+  settings: {
+    cg_nom: "Chef de Groupe Obion",
+    cg_tel: "",
+    wave_url: "",
+    cot_annuelle_j: 2500,
+    cot_mensuelle_j: 500,
+    cot_nationale_deadline: "",
+    pins: {
+      cg: "1111",
+      financier: "2222",
+      cu: "3333"
+    }
+  }
+};
+
+let db = cloneSafe(defaultData);
+let currentUser = null;
+let lastReceiptText = "";
+
+function normalizeDbStructure(raw) {
+  const merged = Object.assign(cloneSafe(defaultData), raw || {});
+  merged.settings = Object.assign(cloneSafe(defaultData.settings), (raw && raw.settings) || {});
+  merged.settings.pins = Object.assign(
+    cloneSafe(defaultData.settings.pins),
+    (raw && raw.settings && raw.settings.pins) || {}
+  );
+  if (!Array.isArray(merged.scouts)) merged.scouts = [];
+  if (!Array.isArray(merged.chefs) || !merged.chefs.length) merged.chefs = cloneSafe(defaultData.chefs);
+  if (!Array.isArray(merged.activites)) merged.activites = [];
+  if (!Array.isArray(merged.programmeEvents)) merged.programmeEvents = [];
+  if (!Array.isArray(merged.presences)) merged.presences = [];
+  if (!Array.isArray(merged.finances)) merged.finances = [];
+  if (!Array.isArray(merged.messageLogs)) merged.messageLogs = [];
+  if (!merged.cuAckLogs || typeof merged.cuAckLogs !== "object") merged.cuAckLogs = {};
+  if (!merged.parentMeetingsDone || typeof merged.parentMeetingsDone !== "object") merged.parentMeetingsDone = {};
+  if (!Array.isArray(merged.cotisationsCustom)) merged.cotisationsCustom = [];
+  if (!merged.cotisationPayments || typeof merged.cotisationPayments !== "object") merged.cotisationPayments = {};
+  return merged;
+}
+
+function mergeArrayById(remoteArr = [], localArr = []) {
+  const map = new Map();
+  remoteArr.forEach((item) => {
+    if (item && item.id) map.set(item.id, item);
+  });
+  localArr.forEach((item) => {
+    if (item && item.id && !map.has(item.id)) map.set(item.id, item);
+  });
+  return Array.from(map.values());
+}
+
+function mergeDbStates(remoteRaw, localRaw) {
+  const remote = normalizeDbStructure(remoteRaw);
+  const local = normalizeDbStructure(localRaw);
+  return normalizeDbStructure({
+    scouts: mergeArrayById(remote.scouts, local.scouts),
+    chefs: mergeArrayById(remote.chefs, local.chefs),
+    activites: mergeArrayById(remote.activites, local.activites),
+    programmeEvents: mergeArrayById(remote.programmeEvents, local.programmeEvents),
+    presences: mergeArrayById(remote.presences, local.presences),
+    finances: mergeArrayById(remote.finances, local.finances),
+    messageLogs: mergeArrayById(remote.messageLogs, local.messageLogs).slice(0, 500),
+    cuAckLogs: Object.assign({}, remote.cuAckLogs, local.cuAckLogs),
+    parentMeetingsDone: Object.assign({}, remote.parentMeetingsDone, local.parentMeetingsDone),
+    cotisationsCustom: mergeArrayById(remote.cotisationsCustom, local.cotisationsCustom),
+    cotisationPayments: Object.assign({}, remote.cotisationPayments, local.cotisationPayments),
+    settings: Object.assign({}, remote.settings, local.settings)
+  });
+}
+
+function setSyncBadge(text, cls = "badge-info") {
+  const el = document.getElementById("syncStatusBadge");
   if (!el) return;
   el.textContent = text;
-  el.style.background = ok ? "rgba(22, 163, 74, 0.25)" : "rgba(220, 38, 38, 0.28)";
+  el.className = `badge ${cls}`;
 }
 
-async function persistDb(auditAction = "", auditDetail = "") {
-  if (auditAction && currentUser) {
-    db.auditLog.unshift({
-      id: uid("log"),
-      date: new Date().toLocaleString("fr-FR"),
-      auteur: `${currentUser.role.toUpperCase()}${currentUser.branche ? " (" + currentUser.branche + ")" : ""}`,
-      action: auditAction,
-      detail: auditDetail
-    });
-    db.auditLog = db.auditLog.slice(0, 150);
-  }
-
-  db = normalizeDb(db);
+async function persistDb(actionTitle = "Mise à jour", actionDetail = "") {
+  db = normalizeDbStructure(db);
   try {
     localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
-  } catch (e) {
-    console.warn("Erreur localStorage:", e);
+  } catch (e) {}
+
+  setSyncBadge("Synchronisation...", "badge-warning");
+  try {
+    const snap = await docRefObion.get();
+    const finalDoc = snap.exists ? mergeDbStates(snap.data(), db) : db;
+    db = finalDoc;
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    await docRefObion.set(finalDoc, { merge: true });
+    setSyncBadge("Synchronisé", "badge-success");
+  } catch (err) {
+    setSyncBadge("Hors ligne (local)", "badge-warning");
   }
 
-  renderAllViews();
+  if (actionTitle) {
+    db.messageLogs.unshift({
+      id: uid("act"),
+      dedupKey: `audit_${Date.now()}`,
+      category: actionTitle,
+      recipientLabel: actionDetail,
+      weekKey: getIsoWeekKey(),
+      sentAt: new Date().toISOString(),
+      author: currentUser ? (currentUser.chefNom || currentUser.role) : "Système"
+    });
+    db.messageLogs = db.messageLogs.slice(0, 500);
+    try {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    } catch (e) {}
+  }
+}
 
-  if (isSavingCloud) return;
-  isSavingCloud = true;
-  setSyncStatus("☁️ Synchronisation...", true);
+async function initAppData() {
+  let localFallback = null;
+  try {
+    const rawLocal = localStorage.getItem(BACKUP_KEY);
+    if (rawLocal) localFallback = JSON.parse(rawLocal);
+  } catch (e) {}
+
+  if (localFallback) {
+    db = normalizeDbStructure(localFallback);
+  }
 
   try {
-    await docRefObion.set(db);
-    setSyncStatus("☁️ Synchronisé", true);
-  } catch (err) {
-    console.error("Erreur Firestore set:", err);
-    setSyncStatus("⚠️ Local uniquement (vérifier règles)", false);
-  } finally {
-    isSavingCloud = false;
-  }
-}
-
-function startRealtimeSync() {
-  if (typeof unsubscribeRealtime === "function") unsubscribeRealtime();
-  setSyncStatus("⏳ Connexion cloud...", true);
-  unsubscribeRealtime = docRefObion.onSnapshot(
-    (snap) => {
-      if (snap && snap.exists && !isSavingCloud) {
-        db = normalizeDb(snap.data());
-        try {
-          localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
-        } catch (e) {}
-        if (currentUser) renderAllViews();
-      }
-      setSyncStatus("☁️ Synchronisé", true);
-    },
-    (err) => {
-      console.error("Erreur onSnapshot:", err);
-      setSyncStatus("⚠️ Local uniquement", false);
-    }
-  );
-}
-
-/* LOGOS (DISTRICT À GAUCHE, GROUPE À DROITE) & CACHET */
-function getPrintHeaderWithSideLogos(titleText, subtitleText = "") {
-  const s = db.settings || {};
-  const logoDistrict = s.logo_district || "logo-district.jpg";
-  const logoGroupe = s.logo_groupe || "logo.jpg";
-
-  return `
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #1b4332; padding-bottom:10px; margin-bottom:14px; gap:12px;">
-      <div style="flex:0 0 auto;">
-        <img src="${escapeHtml(logoDistrict)}" alt="Logo District"
-          style="width:48px; height:48px; border-radius:50%; object-fit:cover; border:1px solid #1b4332;"
-          onerror="this.style.display='none'">
-      </div>
-      <div style="flex:1; text-align:center;">
-        <h2 style="margin:0; font-size:1.15rem; color:#1b4332;">${escapeHtml(titleText)}</h2>
-        ${subtitleText ? `<p style="margin:4px 0 0; font-size:0.85rem; color:#334155;">${escapeHtml(subtitleText)}</p>` : ""}
-      </div>
-      <div style="flex:0 0 auto;">
-        <img src="${escapeHtml(logoGroupe)}" alt="Logo Groupe OBION"
-          style="width:48px; height:48px; border-radius:50%; object-fit:cover; border:1px solid #1b4332;"
-          onerror="this.style.display='none'">
-      </div>
-    </div>
-  `;
-}
-
-function getPrintCachetHtml(label = "CACHET NUMÉRIQUE · CHEF DE GROUPE") {
-  if (!db.settings || !db.settings.cachet_actif) return "";
-  const cgNom = (db.settings && db.settings.cg_nom) || "Chef de Groupe Obion";
-  const cgTel = (db.settings && db.settings.cg_tel) || "";
-
-  return `
-    <div style="margin-top:16px; display:flex; justify-content:flex-end;">
-      <div style="border:2px solid #1b4332; background:#f8fafc; color:#1b4332; padding:10px 16px; border-radius:6px; font-size:0.82rem; line-height:1.45; min-width:230px; text-align:left; transform:none;">
-        <div style="font-weight:700; text-transform:uppercase; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:5px;">
-          ${escapeHtml(label)}
-        </div>
-        <div><strong>Groupe :</strong> OBION</div>
-        <div><strong>Chef de Groupe :</strong> ${escapeHtml(cgNom)}</div>
-        ${cgTel ? `<div><strong>Contact :</strong> ${escapeHtml(cgTel)}</div>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-function generateReceiptNumber(dateStr) {
-  const year = String(dateStr || new Date().toISOString().slice(0, 10)).slice(0, 4) || "2026";
-  const seq = String((db.finances ? db.finances.length : 0) + 1).padStart(4, "0");
-  return `OBION-${year}-${seq}`;
-}
-
-function buildSpecialReceiptHtml({ numero, date, nomJeune, brancheJeune, matricule, motif, detail, montant }) {
-  const cgNom = (db.settings && db.settings.cg_nom) || "Chef de Groupe Obion";
-  const cgTel = (db.settings && db.settings.cg_tel) || "";
-
-  return `
-    <div class="receipt-box" id="printableReceiptCard" style="border:2px solid #1b4332; background:#ffffff; padding:20px; border-radius:10px;">
-      ${getPrintHeaderWithSideLogos("REÇU OFFICIEL DE PAIEMENT", "GROUPE SCOUT OBION · DISTRICT")}
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; background:#f4f6f5; padding:8px 12px; border-radius:6px; margin-bottom:14px; font-size:0.84rem;">
-        <div><strong>N° Reçu :</strong> ${escapeHtml(numero)}</div>
-        <div><strong>Date :</strong> ${escapeHtml(date)}</div>
-        <div><span class="badge badge-green">PAIEMENT ENREGISTRÉ</span></div>
-      </div>
-      <p><strong>Jeune / Membre :</strong> ${escapeHtml(nomJeune)}${brancheJeune ? ` — Branche <strong>${escapeHtml(brancheJeune)}</strong>` : ""}</p>
-      ${matricule ? `<p><strong>Matricule :</strong> ${escapeHtml(matricule)}</p>` : ""}
-      <p><strong>Motif :</strong> ${escapeHtml(motif)}${detail ? ` (${escapeHtml(detail)})` : ""}</p>
-      <p style="margin-top:10px; font-size:1.1rem; color:#1b4332;"><strong>Montant perçu :</strong> ${formatMoney(montant)}</p>
-      <p style="margin-top:10px; font-size:0.78rem; color:#64748b;">
-        Ce reçu atteste de l'enregistrement de l'opération dans les registres du Groupe Scout OBION.
-      </p>
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-top:14px;">
-        <div style="font-size:0.82rem; color:#334155;">
-          <strong>Validation Trésorerie / Groupe</strong><br>
-          <span>${escapeHtml(cgNom)}${cgTel ? " · " + escapeHtml(cgTel) : ""}</span>
-        </div>
-        ${getPrintCachetHtml("CACHET NUMÉRIQUE · CHEF DE GROUPE")}
-      </div>
-    </div>
-  `;
-}
-
-function openReceiptModal(financeId = null) {
-  if (!canManageFinances()) return;
-  const f = financeId ? db.finances.find((x) => x.id === financeId) : null;
-  const scoutOptions = db.scouts.map((s) => `<option value="${s.id}">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)} (${escapeHtml(s.branche)})</option>`).join("");
-  const defaultDate = f && f.date ? f.date : new Date().toISOString().slice(0, 10);
-
-  openModal("Générer un reçu de paiement", `
-    <form onsubmit="buildReceiptPreview(event)">
-      <div class="form-row">
-        <div class="form-group"><label>Jeune / Membre</label><select id="rc_scout">${scoutOptions}</select></div>
-        <div class="form-group">
-          <label>Motif</label>
-          <select id="rc_motif">
-            <option value="Cotisation annuelle">Cotisation annuelle</option>
-            <option value="Cotisation mensuelle">Cotisation mensuelle</option>
-            <option value="Paiement d'activité">Paiement d'activité</option>
-            <option value="Participation camp">Participation camp</option>
-            <option value="Autre cotisation">Autre cotisation</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>N° Reçu</label><input type="text" id="rc_numero" value="${escapeHtml(generateReceiptNumber(defaultDate))}" required></div>
-        <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="rc_montant" min="1" value="${f ? Number(f.montant || 0) : Number(db.settings.cot_mens_j || 500)}" required></div>
-        <div class="form-group"><label>Date *</label><input type="date" id="rc_date" value="${escapeHtml(defaultDate)}" required></div>
-      </div>
-      <div class="form-group"><label>Précision / Référence</label><input type="text" id="rc_detail" value="${escapeHtml(f ? f.libelle : "")}"></div>
-      <button type="submit" class="btn btn-accent">Prévisualiser le reçu</button>
-    </form>
-    <div id="receiptPreviewArea" style="margin-top:16px;"></div>
-  `);
-}
-
-function openReceiptForScout(scoutId, motifLabel, montantVal) {
-  openReceiptModal();
-  setTimeout(() => {
-    const sel = document.getElementById("rc_scout");
-    const det = document.getElementById("rc_detail");
-    const mnt = document.getElementById("rc_montant");
-    if (sel) sel.value = scoutId;
-    if (det) det.value = motifLabel;
-    if (mnt) mnt.value = montantVal;
-  }, 30);
-}
-
-function buildReceiptPreview(e) {
-  e.preventDefault();
-  const scout = db.scouts.find((s) => s.id === document.getElementById("rc_scout").value);
-  const numero = document.getElementById("rc_numero").value.trim() || generateReceiptNumber(document.getElementById("rc_date").value);
-  const motif = document.getElementById("rc_motif").value;
-  const montant = Number(document.getElementById("rc_montant").value || 0);
-  const date = document.getElementById("rc_date").value;
-  const detail = document.getElementById("rc_detail").value.trim();
-
-  const nomJeune = scout ? `${scout.nom} ${scout.prenom}` : "Membre";
-  const brancheJeune = scout ? scout.branche : "";
-  const matricule = scout && scout.matricule ? scout.matricule : "";
-
-  lastReceiptText = [
-    `REÇU OFFICIEL DE PAIEMENT — GROUPE SCOUT OBION`,
-    `N° Reçu : ${numero}`,
-    `Date : ${date}`,
-    `Membre : ${nomJeune}${brancheJeune ? " (" + brancheJeune + ")" : ""}`,
-    matricule ? `Matricule : ${matricule}` : "",
-    `Motif : ${motif}${detail ? " — " + detail : ""}`,
-    `Montant : ${formatMoney(montant)}`
-  ].filter(Boolean).join("\n");
-
-  document.getElementById("receiptPreviewArea").innerHTML = `
-    ${buildSpecialReceiptHtml({ numero, date, nomJeune, brancheJeune, matricule, motif, detail, montant })}
-    <div class="actions-row" style="margin-top:12px;">
-      <button type="button" class="btn btn-sm btn-success" onclick="copyLastReceipt()">📋 Copier le reçu</button>
-      <button type="button" class="btn btn-sm btn-secondary" onclick="()">🖨️ Imprimer / PDF</button>
-    </div>
-  `;
-}
-
-function copyLastReceipt() {
-  if (!lastReceiptText) return;
-  navigator.clipboard?.writeText(lastReceiptText);
-  alert("Reçu copié !");
-}
-function triggerPrintHtml(html) {
-  if (typeof closeModal === "function") {
-    closeModal();
-  }
-  const pz = document.getElementById("printZone");
-  if (!pz) return;
-  pz.innerHTML = `<div style="font-family:sans-serif; padding:12px; color:#000; background:#fff;">${html}</div>`;
-  pz.style.display = "block";
-
-  setTimeout(() => {
-    try {
-      window.print();
-    } catch (err) {
-      console.error("Erreur impression:", err);
-      alert("L'impression a été bloquée par le navigateur.");
-    }
-  }, 100);
-}
-
-function printReceiptCard() {
-  const card = document.getElementById("printableReceiptCard");
-  if (!card) return;
-  triggerPrintHtml(card.outerHTML);
-}
-function printReceiptCard() {
-  const card = document.getElementById("printableReceiptCard");
-  if (!card) return;
-  triggerPrintHtml(card.outerHTML);
-}
-
-/* AUTHENTIFICATION & ACCÈS INDIVIDUEL CU */
-function toggleLoginBranch() {
-  const role = document.getElementById("loginRole").value;
-  document.getElementById("loginBranchGroup").style.display = role === "cu" ? "block" : "none";
-}
-
-function handleLogin(e) {
-  e.preventDefault();
-  const role = document.getElementById("loginRole").value;
-  const branche = role === "cu" ? document.getElementById("loginBranch").value : null;
-  const pin = String(document.getElementById("loginPin").value || "").trim();
-
-  const pins = (db.settings && db.settings.pins) || {};
-
-  if (role === "cu") {
-    const cuChefs = (db.chefs || []).filter((c) => String(c.branche || "").trim() === branche);
-    const individualMatch = cuChefs.find(
-      (c) => c.pin !== undefined && c.pin !== null && String(c.pin).trim() !== "" && String(c.pin).trim() === pin
-    );
-    const hasAnyIndividualPin = cuChefs.some(
-      (c) => c.pin !== undefined && c.pin !== null && String(c.pin).trim() !== ""
-    );
-    const fallbackCuPin = String(pins.cu || "3333").trim();
-
-    if (individualMatch) {
-      currentUser = {
-        role: "cu",
-        branche,
-        chefId: individualMatch.id,
-        chefNom: individualMatch.nom,
-        loginAt: Date.now()
-      };
-    } else if (!hasAnyIndividualPin && pin === fallbackCuPin) {
-      currentUser = {
-        role: "cu",
-        branche,
-        chefId: null,
-        chefNom: `CU ${branche}`,
-        loginAt: Date.now()
-      };
+    const snap = await docRefObion.get();
+    if (snap.exists) {
+      db = localFallback ? mergeDbStates(snap.data(), localFallback) : normalizeDbStructure(snap.data());
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+      setSyncBadge("Synchronisé", "badge-success");
     } else {
-      alert("PIN individuel ou branche incorrect pour ce Chef d'Unité.");
-      return;
+      await docRefObion.set(db);
+      setSyncBadge("Synchronisé", "badge-success");
     }
-  } else {
-    const configuredPin = String(pins[role] || "").trim();
-    const expectedPin = configuredPin || (role === "cg" ? "1111" : "2222");
+  } catch (e) {
+    setSyncBadge("Hors ligne (local)", "badge-warning");
+  }
 
-    if (pin !== expectedPin) {
-      alert("Code PIN incorrect pour ce rôle.");
+  docRefObion.onSnapshot((doc) => {
+    if (!doc.exists) return;
+    db = normalizeDbStructure(doc.data());
+    try {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    } catch (e) {}
+    setSyncBadge("Synchronisé", "badge-success");
+    if (currentUser) renderAll();
+  }, () => {
+    setSyncBadge("Hors ligne (local)", "badge-warning");
+  });
+}
+
+// --- AUTHENTIFICATION & RÔLES ---
+function populateChefLoginSelect() {
+  const sel = document.getElementById("chefLoginSelect");
+  if (!sel) return;
+  sel.innerHTML = (db.chefs || [])
+    .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nom)} (${escapeHtml(c.branche || "Groupe")})</option>`)
+    .join("");
+}
+
+function toggleChefSelect() {
+  const role = document.getElementById("roleSelect")?.value;
+  const grp = document.getElementById("chefSelectGroup");
+  if (grp) grp.style.display = role === "cu" ? "block" : "none";
+}
+
+function handleLogin(event) {
+  event.preventDefault();
+  const role = document.getElementById("roleSelect").value;
+  const pin = String(document.getElementById("pinInput").value || "").trim();
+  const pins = db.settings.pins || {};
+
+  if (role === "cg" && pin !== String(pins.cg || "1111")) {
+    alert("Code PIN Chef de Groupe incorrect.");
+    return;
+  }
+  if (role === "financier" && pin !== String(pins.financier || "2222")) {
+    alert("Code PIN Financier incorrect.");
+    return;
+  }
+  if (role === "cu") {
+    if (pin !== String(pins.cu || "3333")) {
+      alert("Code PIN Chef d'Unité incorrect.");
       return;
     }
-    currentUser = { role, branche: null, loginAt: Date.now() };
+    const chefId = document.getElementById("chefLoginSelect").value;
+    const chef = (db.chefs || []).find((c) => c.id === chefId) || db.chefs[0];
+    currentUser = {
+      role: "cu",
+      chefId: chef ? chef.id : "",
+      chefNom: chef ? chef.nom : "Chef d'Unité",
+      branche: chef ? chef.branche : "Toutes"
+    };
+  } else {
+    currentUser = {
+      role,
+      chefNom: role === "cg" ? (db.settings.cg_nom || "Chef de Groupe") : "Financier",
+      branche: "Toutes"
+    };
   }
 
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-  } catch (err) {}
+  } catch (e) {}
+
   showAppShell();
 }
 
-function handleLogout() {
+function logout() {
   currentUser = null;
   try {
     sessionStorage.removeItem(SESSION_KEY);
-  } catch (err) {}
+  } catch (e) {}
   document.getElementById("appShell").style.display = "none";
-  document.getElementById("loginScreen").style.display = "flex";
-  document.getElementById("loginPin").value = "";
-}
-
-function isCG() { return currentUser && currentUser.role === "cg"; }
-function isFinancier() { return currentUser && currentUser.role === "financier"; }
-function isCU() { return currentUser && currentUser.role === "cu"; }
-function canManageFinances() { return isCG() || isFinancier(); }
-function canManageStructure() { return isCG(); }
-
-function getScopedScouts() {
-  if (isCU() && currentUser.branche) {
-    return db.scouts.filter((s) => s.branche === currentUser.branche);
-  }
-  return db.scouts;
-}
-
-function getScopedChefs() {
-  if (isCU() && currentUser.branche) {
-    return db.chefs.filter((c) => c.branche === currentUser.branche);
-  }
-  return db.chefs;
-}
-
-function getScopedCamps() {
-  if (isCU() && currentUser.branche) {
-    return db.camps.filter((c) => c.type === "branche" && c.branche === currentUser.branche);
-  }
-  return db.camps;
-}
-
-function getScopedProgramme() {
-  if (isCU() && currentUser.branche) {
-    return db.activites.filter((a) =>
-      a.cible === "cu_only" ||
-      a.cible === "tous_chefs" ||
-      (a.branche && a.branche === currentUser.branche)
-    );
-  }
-  return db.activites;
+  document.getElementById("loginScreen").style.display = "grid";
+  document.getElementById("pinInput").value = "";
 }
 
 function showAppShell() {
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("appShell").style.display = "block";
-
-  const roleLabels = {
-    cg: "Chef de Groupe",
-    financier: "Financier / Trésorier",
-    cu: currentUser.chefNom || "Chef d'Unité"
-  };
-
-  document.getElementById("activeUserLabel").textContent =
-    currentUser.role === "cg" ? (db.settings.cg_nom || "Chef de Groupe") : roleLabels[currentUser.role];
-
-  document.getElementById("activeRoleBadge").textContent =
-    currentUser.role === "cu" ? "Chef d'Unité (CU)" : roleLabels[currentUser.role];
-
-  const scopeBadge = document.getElementById("activeScopeBadge");
-  if (isCU()) {
-    scopeBadge.textContent = `Branche : ${currentUser.branche}`;
-    scopeBadge.className = "badge badge-amber";
-  } else {
-    scopeBadge.textContent = "Périmètre : Groupe OBION";
-    scopeBadge.className = "badge badge-blue";
+  const badge = document.getElementById("userBadgeLine");
+  if (badge && currentUser) {
+    const scope = currentUser.role === "cu" ? ` — Branche : ${currentUser.branche}` : " — Groupe complet";
+    badge.textContent = `${currentUser.chefNom} (${currentUser.role.toUpperCase()})${scope}`;
   }
-
-  applyRoleVisibility();
-  initDefaultControls();
-  renderAllViews();
-}
-
-function applyRoleVisibility() {
-  const cuMode = isCU();
-  document.querySelector('[data-tab="finances"]').style.display = cuMode ? "none" : "inline-flex";
-  document.querySelector('[data-tab="parametres"]').style.display = isCG() ? "inline-flex" : "none";
-  document.getElementById("btnAddChef").style.display = canManageStructure() ? "inline-flex" : "none";
-  document.getElementById("btnAddActivite").style.display = canManageStructure() ? "inline-flex" : "none";
-  document.getElementById("btnAddCamp").style.display = canManageStructure() ? "inline-flex" : "none";
-  document.getElementById("btnQuickReceiptDash").style.display = canManageFinances() ? "inline-flex" : "none";
-
-  if (cuMode && (currentActiveTab === "finances" || currentActiveTab === "parametres")) {
-    currentActiveTab = "dashboard";
+  if (currentUser && currentUser.role === "cu" && currentUser.branche) {
+    const brFilter = document.getElementById("presenceBranchFilter");
+    if (brFilter) brFilter.value = currentUser.branche;
   }
-}
-
-function initDefaultControls() {
-  const today = new Date().toISOString().slice(0, 10);
-  const month = new Date().toISOString().slice(0, 7);
-
-  const dateInput = document.getElementById("appelDateInput");
-  if (dateInput && !dateInput.value) dateInput.value = today;
-
-  const monthPicker = document.getElementById("financeMonthPicker");
-  if (monthPicker && !monthPicker.value) monthPicker.value = month;
-
-  const appelBranche = document.getElementById("appelBrancheSelect");
-  const filterBranche = document.getElementById("filterScoutBranche");
-  const pedagoBranche = document.getElementById("pedagoBrancheSelect");
-
-  if (isCU() && currentUser.branche) {
-    appelBranche.value = currentUser.branche;
-    appelBranche.disabled = true;
-    filterBranche.value = currentUser.branche;
-    filterBranche.disabled = true;
-    pedagoBranche.value = currentUser.branche;
-    pedagoBranche.disabled = true;
-  } else {
-    appelBranche.disabled = false;
-    filterBranche.disabled = false;
-    pedagoBranche.disabled = false;
-  }
-
-  applyAnnonceTemplate();
+  renderAll();
 }
 
 function switchTab(tabName) {
-  if (isCU() && (tabName === "finances" || tabName === "parametres")) {
-    tabName = "dashboard";
-  }
-  currentActiveTab = tabName;
-  document.querySelectorAll(".nav-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  document.querySelectorAll(".tab-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tabName);
   });
-  document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("active", panel.id === `tab-${tabName}`);
+  document.querySelectorAll(".tab-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === `tab-${tabName}`);
   });
-  renderAllViews();
 }
 
-function renderAllViews() {
-  if (!currentUser) return;
-  applyRoleVisibility();
-  renderDashboard();
-  renderTenueMatriculeSummary();
-  renderEffectifs();
-  renderQuickAppel();
-  renderPresencesHistory();
-  renderProgrammeAnnuel();
-  renderCamps();
-  renderPedagogie();
-  renderMateriel();
-  if (canManageFinances()) {
-    renderFinances();
-  }
-  renderAnnonceRecipients();
-  if (isCG()) {
-    renderSettingsInputs();
-  }
+function toggleActionCenter() {
+  const box = document.getElementById("smartRemindersBox");
+  if (!box) return;
+  box.style.display = box.style.display === "none" ? "block" : "none";
 }
 
-function computeGenderStats(list) {
-  const total = list.length;
-  const garcons = list.filter((x) => x.sexe === "Garçon").length;
-  const filles = list.filter((x) => x.sexe === "Fille").length;
-  const pctG = total ? Math.round((garcons / total) * 100) : 0;
-  const pctF = total ? Math.round((filles / total) * 100) : 0;
-  return { total, garcons, filles, pctG, pctF };
+// --- DATES, SEMAINES & ANTI-DOUBLON ---
+function getIsoWeekKey(dateInput = new Date()) {
+  const d = new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return "";
+  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
+  return `${utc.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
-/* 1. TABLEAU DE BORD, ALERTES & RÉCAPITULATIF TENUE / MATRICULE */
-function renderDashboard() {
-  const scouts = getScopedScouts();
-  const chefs = getScopedChefs();
-  const sStats = computeGenderStats(scouts);
-  const cStats = computeGenderStats(chefs);
-  const solde = db.finances.reduce((acc, f) => acc + (f.type === "entree" ? Number(f.montant || 0) : -Number(f.montant || 0)), 0);
-
-  document.getElementById("dashKpiGrid").innerHTML = `
-    <div class="kpi-box">
-      <div class="kpi-label">Total Jeunes (${isCU() ? currentUser.branche : "Groupe"})</div>
-      <div class="kpi-value">${sStats.total}</div>
-      <div class="kpi-sub">Garçons : ${sStats.garcons} (${sStats.pctG}%) · Filles : ${sStats.filles} (${sStats.pctF}%)</div>
-    </div>
-    <div class="kpi-box">
-      <div class="kpi-label">Maîtrise / Chefs</div>
-      <div class="kpi-value">${cStats.total}</div>
-      <div class="kpi-sub">Garçons : ${cStats.garcons} (${cStats.pctG}%) · Filles : ${cStats.filles} (${cStats.pctF}%)</div>
-    </div>
-    <div class="kpi-box">
-      <div class="kpi-label">Programme visible</div>
-      <div class="kpi-value">${getScopedProgramme().length}</div>
-      <div class="kpi-sub">Camps visibles : ${getScopedCamps().length}</div>
-    </div>
-    ${canManageFinances() ? `
-    <div class="kpi-box">
-      <div class="kpi-label">Solde Trésorerie</div>
-      <div class="kpi-value">${formatMoney(solde)}</div>
-      <div class="kpi-sub">Dons : ${db.dons.length}</div>
-    </div>` : `
-    <div class="kpi-box">
-      <div class="kpi-label">Sans tenue scoute</div>
-      <div class="kpi-value">${scouts.filter((s) => !s.tenue_complete).length}</div>
-      <div class="kpi-sub">À signaler aux parents</div>
-    </div>`}
-  `;
-
-  const branchesToShow = isCU() && currentUser.branche ? [currentUser.branche] : BRANCHES;
-  document.getElementById("dashGenderTableBody").innerHTML = branchesToShow.map((br) => {
-    const st = computeGenderStats(scouts.filter((s) => s.branche === br));
-    const bChefs = chefs.filter((c) => c.branche === br).length;
-    return `
-      <tr>
-        <td><strong>${escapeHtml(br)}</strong></td>
-        <td>${st.total}</td>
-        <td>${st.garcons} (${st.pctG}%)</td>
-        <td>${st.filles} (${st.pctF}%)</td>
-        <td>${bChefs}</td>
-      </tr>
-    `;
-  }).join("");
-
-  const alerts = [];
-  const noPhone = scouts.filter((s) => !s.parent_tel || !s.parent_tel.trim());
-  const noTenue = scouts.filter((s) => !s.tenue_complete);
-  const noMatricule = scouts.filter((s) => !s.matricule || !s.matricule.trim());
-
-  if (noPhone.length) alerts.push(`<div class="alert-item"><span>📱 <strong>${noPhone.length}</strong> jeune(s) sans numéro parent.</span><button type="button" class="btn btn-sm btn-secondary" onclick="switchTab('effectifs')">Compléter</button></div>`);
-  if (noTenue.length) alerts.push(`<div class="alert-item info"><span>⚜️ <strong>${noTenue.length}</strong> jeune(s) sans tenue scoute.</span></div>`);
-  if (noMatricule.length) alerts.push(`<div class="alert-item danger"><span>🆔 <strong>${noMatricule.length}</strong> jeune(s) sans matricule enregistré.</span></div>`);
-
-  document.getElementById("dashAlertsContainer").innerHTML = alerts.length
-    ? alerts.join("")
-    : `<p style="color:var(--muted); font-size:0.88rem;">Aucune alerte bloquante.</p>`;
+function daysUntilDate(dateStr) {
+  if (!dateStr) return null;
+  const target = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86400000);
 }
 
-function renderTenueMatriculeSummary() {
-  const tbody = document.getElementById("tenueMatriculeTableBody");
-  if (!tbody) return;
-
-  const list = getScopedScouts().filter((s) => !s.tenue_complete || !s.matricule || !s.matricule.trim());
-  if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Tous les jeunes visibles ont une tenue complète et un matricule.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = list.map((s) => {
-    const missingTenue = !s.tenue_complete;
-    const missingMat = !s.matricule || !s.matricule.trim();
-    let situationBadge = "";
-    let presetMsg = "";
-
-    if (missingTenue && missingMat) {
-      situationBadge = `<span class="badge badge-red">Sans tenue & Sans matricule</span>`;
-      presetMsg = `Bonjour chers parents (Groupe OBION), nous vous informons que ${s.prenom} ${s.nom} (${s.branche}) n'a pas encore de tenue scoute complète et que son matricule est en attente de régularisation. Merci de nous contacter.`;
-    } else if (missingTenue) {
-      situationBadge = `<span class="badge badge-amber">Sans tenue</span>`;
-      presetMsg = `Bonjour chers parents (Groupe OBION), nous vous signalons que ${s.prenom} ${s.nom} (${s.branche}) n'a pas encore de tenue scoute complète. Merci de prévoir de la régulariser pour les activités.`;
-    } else {
-      situationBadge = `<span class="badge badge-blue">Sans matricule</span>`;
-      presetMsg = `Bonjour chers parents (Groupe OBION), le matricule de ${s.prenom} ${s.nom} (${s.branche}) n'est pas encore enregistré. Merci de vous rapprocher de la trésorerie / maîtrise pour le suivi.`;
+function findRecentMessageLog(dedupKey, maxDays = 7) {
+  const currentWeek = getIsoWeekKey();
+  const nowMs = Date.now();
+  return (db.messageLogs || []).find((entry) => {
+    if (!entry || entry.dedupKey !== dedupKey) return false;
+    if (entry.weekKey === currentWeek) return true;
+    const sentMs = new Date(entry.sentAt || 0).getTime();
+    if (!Number.isNaN(sentMs)) {
+      return (nowMs - sentMs) / 86400000 <= maxDays;
     }
-
-    const waPhone = normalizeWaPhone(s.parent_tel);
-    const waHref = waPhone ? `https://wa.me/${waPhone}?text=${encodeURIComponent(presetMsg)}` : "";
-
-    return `
-      <tr>
-        <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
-        <td>${escapeHtml(s.branche)}</td>
-        <td>${situationBadge}</td>
-        <td>${escapeHtml(s.parent_nom || "Parent")} — ${escapeHtml(s.parent_tel || "Non renseigné")}</td>
-        <td>
-          <div style="font-size:0.78rem; color:#334155; margin-bottom:6px;">${escapeHtml(presetMsg)}</div>
-          ${waHref
-            ? `<a href="${waHref}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-success">Envoyer sur WhatsApp</a>`
-            : `<span class="badge badge-gray">Numéro absent</span>`}
-        </td>
-      </tr>
-    `;
-  }).join("");
+    return false;
+  }) || null;
 }
 
-/* 2. EFFECTIFS & AJOUT DE CHEFS / ACCÈS CU */
-function renderEffectifs() {
-  const filterBr = document.getElementById("filterScoutBranche").value;
-  const query = (document.getElementById("searchScoutInput").value || "").trim().toLowerCase();
+function getMessageStatusBadge(dedupKey) {
+  const recent = findRecentMessageLog(dedupKey, 7);
+  if (!recent) return `<span class="badge badge-info">Non envoyé cette sem.</span>`;
+  const dayStr = String(recent.sentAt || "").slice(0, 10);
+  return `<span class="badge badge-success" title="Envoyé le ${escapeHtml(dayStr)}">✓ Envoyé (${escapeHtml(dayStr)})</span>`;
+}
 
-  let list = getScopedScouts();
-  if (filterBr && filterBr !== "Toutes") list = list.filter((s) => s.branche === filterBr);
-  if (query) {
-    list = list.filter((s) => `${s.nom} ${s.prenom} ${s.matricule || ""} ${s.parent_nom || ""}`.toLowerCase().includes(query));
+function openWhatsAppUrl(phoneRaw, messageText) {
+  const digits = normalizeWaPhone(phoneRaw);
+  const encoded = encodeURIComponent(String(messageText || "").trim());
+  if (!encoded) return;
+  const url = digits ? `https://wa.me/${digits}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+async function sendTrackedWhatsAppMessage({
+  phoneRaw,
+  messageText,
+  dedupKey,
+  category,
+  recipientLabel
+}) {
+  const existing = dedupKey ? findRecentMessageLog(dedupKey, 7) : null;
+  if (existing) {
+    const sentDate = String(existing.sentAt || "").slice(0, 10);
+    const ok = confirm(
+      `Un message a déjà été envoyé pour "${recipientLabel || category}" cette semaine (${sentDate}).\n\nVoulez-vous vraiment renvoyer ce message ?`
+    );
+    if (!ok) return false;
   }
 
-  const st = computeGenderStats(list);
-  document.getElementById("scoutStatsBar").innerHTML = `
-    <div class="kpi-box"><div class="kpi-label">Effectif filtré</div><div class="kpi-value">${st.total}</div></div>
-    <div class="kpi-box"><div class="kpi-label">Garçons</div><div class="kpi-value">${st.garcons} <small>(${st.pctG}%)</small></div></div>
-    <div class="kpi-box"><div class="kpi-label">Filles</div><div class="kpi-value">${st.filles} <small>(${st.pctF}%)</small></div></div>
-    <div class="kpi-box"><div class="kpi-label">Avec matricule</div><div class="kpi-value">${list.filter((x) => x.matricule).length}</div></div>
-  `;
+  openWhatsAppUrl(phoneRaw, messageText);
 
-  document.getElementById("scoutsTableBody").innerHTML = list.length ? list.map((s) => `
-    <tr>
-      <td>
-        <strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong><br>
-        <small style="color:var(--muted);">${s.allergies ? "🩺 " + escapeHtml(s.allergies) : ""}</small>
-      </td>
-      <td><span class="badge badge-blue">${escapeHtml(s.branche)}</span></td>
-      <td>${escapeHtml(s.sexe || "-")}</td>
-      <td>${s.tenue_complete ? `<span class="badge badge-green">Complète</span>` : `<span class="badge badge-amber">À prévoir</span>`}</td>
-      <td>
-        ${escapeHtml(s.parent_nom || "Parent")}<br>
-        <small>${escapeHtml(s.parent_tel || "Non renseigné")}</small>
-      </td>
-      <td>
-        ${s.cotisation_annuelle === "paye" ? `<span class="badge badge-green">Annuelle OK</span>` : `<span class="badge badge-gray">En attente</span>`}<br>
-        <small>${escapeHtml(s.matricule || "Sans matricule")}</small>
-      </td>
-      <td>
-        <div class="actions-row">
-          <button type="button" class="btn btn-sm btn-secondary" onclick="openScoutModal('${s.id}')">Modifier</button>
-          ${canManageStructure() ? `<button type="button" class="btn btn-sm btn-danger" onclick="deleteScout('${s.id}')">Suppr.</button>` : ""}
-        </div>
-      </td>
-    </tr>
-  `).join("") : `<tr><td colspan="7" style="text-align:center; color:var(--muted);">Aucun jeune trouvé.</td></tr>`;
-
-  const chefs = getScopedChefs();
-  const cSt = computeGenderStats(chefs);
-  document.getElementById("chefsStatsBar").innerHTML =
-    `Total maîtrise : <strong>${cSt.total}</strong> · Garçons : <strong>${cSt.garcons} (${cSt.pctG}%)</strong> · Filles : <strong>${cSt.filles} (${cSt.pctF}%)</strong>`;
-
-  document.getElementById("chefsTableBody").innerHTML = chefs.length ? chefs.map((c) => `
-    <tr>
-      <td><strong>${escapeHtml(c.nom)}</strong></td>
-      <td>${escapeHtml(c.fonction || "Chef")}</td>
-      <td>${escapeHtml(c.branche || "Groupe")}</td>
-      <td>${escapeHtml(c.sexe || "-")}</td>
-      <td>${escapeHtml(c.tel || "-")}</td>
-      <td>${canManageStructure() ? (c.pin ? `<span class="badge badge-blue">${escapeHtml(c.pin)}</span>` : `<span class="badge badge-gray">Défaut</span>`) : `<span class="badge badge-gray">Masqué</span>`}</td>
-      <td>
-        ${canManageStructure() ? `
-          <button type="button" class="btn btn-sm btn-secondary" onclick="openChefModal('${c.id}')">Modifier</button>
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteChef('${c.id}')">Suppr.</button>
-        ` : `<span class="badge badge-gray">Lecture</span>`}
-      </td>
-    </tr>
-  `).join("") : `<tr><td colspan="7" style="text-align:center; color:var(--muted);">Aucun chef enregistré.</td></tr>`;
+  db.messageLogs.unshift({
+    id: uid("msg"),
+    dedupKey: dedupKey || `msg_${Date.now()}`,
+    category: category || "Message WhatsApp",
+    recipientLabel: recipientLabel || "",
+    weekKey: getIsoWeekKey(),
+    sentAt: new Date().toISOString(),
+    author: currentUser ? (currentUser.chefNom || currentUser.role) : "Système"
+  });
+  await persistDb("Message WhatsApp envoyé", `${category} — ${recipientLabel}`);
+  renderAll();
+  return true;
 }
 
-function openScoutModal(scoutId = null) {
-  const existing = scoutId ? db.scouts.find((s) => s.id === scoutId) : null;
-  const defaultBr = isCU() && currentUser.branche ? currentUser.branche : (existing ? existing.branche : "Meute");
-
-  openModal(existing ? "Modifier la fiche jeune" : "Ajouter un jeune", `
-    <form onsubmit="saveScout(event, '${existing ? existing.id : ""}')">
-      <div class="form-row">
-        <div class="form-group"><label>Nom *</label><input type="text" id="sc_nom" value="${escapeHtml(existing ? existing.nom : "")}" required></div>
-        <div class="form-group"><label>Prénoms *</label><input type="text" id="sc_prenom" value="${escapeHtml(existing ? existing.prenom : "")}" required></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Branche *</label>
-          <select id="sc_branche" ${isCU() && currentUser.branche ? "disabled" : ""}>
-            ${BRANCHES.map((b) => `<option value="${b}" ${defaultBr === b ? "selected" : ""}>${b}</option>`).join("")}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Sexe *</label>
-          <select id="sc_sexe">
-            <option value="Garçon" ${existing && existing.sexe === "Garçon" ? "selected" : ""}>Garçon</option>
-            <option value="Fille" ${existing && existing.sexe === "Fille" ? "selected" : ""}>Fille</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Tenue scoute</label>
-          <select id="sc_tenue">
-            <option value="1" ${!existing || existing.tenue_complete ? "selected" : ""}>Tenue complète</option>
-            <option value="0" ${existing && !existing.tenue_complete ? "selected" : ""}>Sans tenue / Incomplète</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Nom du parent</label><input type="text" id="sc_parent_nom" value="${escapeHtml(existing ? existing.parent_nom : "")}"></div>
-        <div class="form-group"><label>Téléphone parent (WhatsApp)</label><input type="text" id="sc_parent_tel" value="${escapeHtml(existing ? existing.parent_tel : "")}"></div>
-        <div class="form-group"><label>Contact d'urgence</label><input type="text" id="sc_urgence_tel" value="${escapeHtml(existing ? existing.urgence_tel : "")}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Cotisation annuelle</label>
-          <select id="sc_cot_annuelle">
-            <option value="en_attente" ${!existing || existing.cotisation_annuelle !== "paye" ? "selected" : ""}>En attente</option>
-            <option value="paye" ${existing && existing.cotisation_annuelle === "paye" ? "selected" : ""}>Payée</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Matricule (confirme annuel)</label><input type="text" id="sc_matricule" value="${escapeHtml(existing ? existing.matricule : "")}"></div>
-      </div>
-      <div class="form-group"><label>Allergies / Infos médicales en camp</label><input type="text" id="sc_allergies" value="${escapeHtml(existing ? existing.allergies : "")}"></div>
-      <div class="actions-row">
-        <button type="submit" class="btn btn-success">Enregistrer</button>
-        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-      </div>
-    </form>
-  `);
-}
-
-async function saveScout(e, id) {
-  e.preventDefault();
-  const brancheVal = isCU() && currentUser.branche ? currentUser.branche : document.getElementById("sc_branche").value;
-  const matricule = document.getElementById("sc_matricule").value.trim();
-  const cotAnn = matricule ? "paye" : document.getElementById("sc_cot_annuelle").value;
-
-  const payload = {
-    id: id || uid("scout"),
-    nom: document.getElementById("sc_nom").value.trim(),
+// --- EFFECTIFS & PRÉSENCES + RÈGLE 3 ABSENCES CONSÉCUTIVES ---
+async function addScout(event) {
+  event.preventDefault();
+  const scout = {
+    id: uid("sc"),
     prenom: document.getElementById("sc_prenom").value.trim(),
-    branche: brancheVal,
-    sexe: document.getElementById("sc_sexe").value,
-    tenue_complete: document.getElementById("sc_tenue").value === "1",
+    nom: document.getElementById("sc_nom").value.trim(),
+    matricule: document.getElementById("sc_matricule").value.trim(),
+    branche: document.getElementById("sc_branche").value,
     parent_nom: document.getElementById("sc_parent_nom").value.trim(),
     parent_tel: document.getElementById("sc_parent_tel").value.trim(),
-    urgence_tel: document.getElementById("sc_urgence_tel").value.trim(),
-    cotisation_annuelle: cotAnn,
-    matricule,
     allergies: document.getElementById("sc_allergies").value.trim()
   };
-
-  if (id) {
-    db.scouts = db.scouts.map((s) => (s.id === id ? { ...s, ...payload } : s));
-  } else {
-    db.scouts.push({ ...payload, etape_pedago: "Début", notes_pedago: "" });
-  }
-  closeModal();
-  await persistDb(id ? "Modification jeune" : "Ajout jeune", `${payload.nom} ${payload.prenom}`);
+  db.scouts.push(scout);
+  event.target.reset();
+  await persistDb("Ajout jeune", `${scout.prenom} ${scout.nom} (${scout.branche})`);
+  renderAll();
 }
 
-async function deleteScout(id) {
-  if (!canManageStructure()) return;
-  db.scouts = db.scouts.filter((s) => s.id !== id);
-  await persistDb("Suppression jeune", id);
-}
-
-function openChefModal(chefId = null) {
-  if (!canManageStructure()) return;
-  const existing = chefId ? db.chefs.find((c) => c.id === chefId) : null;
-  openModal(existing ? "Modifier un chef / accès CU" : "Ajouter un chef / accès CU", `
-    <form onsubmit="saveChef(event, '${existing ? existing.id : ""}')">
-      <div class="form-row">
-        <div class="form-group"><label>Nom & Prénoms *</label><input type="text" id="ch_nom" value="${escapeHtml(existing ? existing.nom : "")}" required></div>
-        <div class="form-group"><label>Fonction</label><input type="text" id="ch_fonction" value="${escapeHtml(existing ? existing.fonction : "Chef d'Unité")}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Branche</label>
-          <select id="ch_branche">
-            <option value="Groupe" ${!existing || existing.branche === "Groupe" ? "selected" : ""}>Groupe / Direction</option>
-            ${BRANCHES.map((b) => `<option value="${b}" ${existing && existing.branche === b ? "selected" : ""}>${b}</option>`).join("")}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Sexe</label>
-          <select id="ch_sexe">
-            <option value="Garçon" ${!existing || existing.sexe === "Garçon" ? "selected" : ""}>Garçon</option>
-            <option value="Fille" ${existing && existing.sexe === "Fille" ? "selected" : ""}>Fille</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Téléphone</label><input type="text" id="ch_tel" value="${escapeHtml(existing ? existing.tel : "")}"></div>
-      </div>
-      <div class="form-group"><label>Code PIN individuel CU</label><input type="text" id="ch_pin" value="${escapeHtml(existing && existing.pin ? existing.pin : "")}" placeholder="Ex: 4101"></div>
-      <div class="actions-row">
-        <button type="submit" class="btn btn-success">Enregistrer</button>
-        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-      </div>
-    </form>
-  `);
-}
-
-async function saveChef(e, id) {
-  e.preventDefault();
-  if (!canManageStructure()) return;
-  const prev = id ? db.chefs.find((c) => c.id === id) : null;
-  const payload = {
-    ...(prev || {}),
-    id: id || uid("chef"),
-    nom: document.getElementById("ch_nom").value.trim(),
-    fonction: document.getElementById("ch_fonction").value.trim(),
-    branche: document.getElementById("ch_branche").value,
-    sexe: document.getElementById("ch_sexe").value,
-    tel: document.getElementById("ch_tel").value.trim(),
-    pin: document.getElementById("ch_pin").value.trim()
+async function markPresence(scoutId, status) {
+  const dateStr = document.getElementById("presenceDateInput")?.value || new Date().toISOString().slice(0, 10);
+  const existingIdx = db.presences.findIndex((p) => p.scoutId === scoutId && p.date === dateStr);
+  const entry = {
+    id: existingIdx >= 0 ? db.presences[existingIdx].id : uid("pr"),
+    scoutId,
+    date: dateStr,
+    status
   };
-  if (id) db.chefs = db.chefs.map((c) => (c.id === id ? payload : c));
-  else db.chefs.push(payload);
-  closeModal();
-  await persistDb(id ? "Modification chef" : "Ajout chef", payload.nom);
+  if (existingIdx >= 0) db.presences[existingIdx] = entry;
+  else db.presences.push(entry);
+
+  const scout = db.scouts.find((s) => s.id === scoutId);
+  await persistDb("Pointage présence", `${scout ? `${scout.prenom} ${scout.nom}` : scoutId} : ${status} (${dateStr})`);
+  renderAll();
 }
 
-async function deleteChef(id) {
-  if (!canManageStructure()) return;
-  db.chefs = db.chefs.filter((c) => c.id !== id);
-  await persistDb("Suppression chef", id);
-}
+function getConsecutiveAbsences(scoutId) {
+  const records = (db.presences || [])
+    .filter((p) => p.scoutId === scoutId)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
-/* 3. APPELS, MESSAGES AUTO & IMPRESSION AVEC LOGOS GAUCHE/DROITE + CACHET */
-function renderQuickAppel() {
-  const br = document.getElementById("appelBrancheSelect").value;
-  const list = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
-  const container = document.getElementById("quickAppelList");
-
-  if (!list.length) {
-    container.innerHTML = `<p style="color:var(--muted); font-size:0.88rem;">Aucun jeune dans cette branche.</p>`;
-    return;
+  let streak = 0;
+  for (let i = records.length - 1; i >= 0; i--) {
+    if (records[i].status === "absent") streak++;
+    else break;
   }
-
-  list.forEach((s) => {
-    if (!quickAppelStates[s.id]) quickAppelStates[s.id] = "Présent";
-  });
-
-  container.innerHTML = list.map((s) => {
-    const st = quickAppelStates[s.id];
-    return `
-      <div class="appel-row">
-        <div>
-          <strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong>
-          <span class="badge badge-gray" style="margin-left:6px;">${escapeHtml(s.branche)}</span>
-        </div>
-        <div class="appel-toggle">
-          <button type="button" class="btn btn-sm ${st === "Présent" ? "btn-success" : "btn-secondary"}" onclick="setAppelState('${s.id}', 'Présent')">Présent</button>
-          <button type="button" class="btn btn-sm ${st === "Absent" ? "btn-danger" : "btn-secondary"}" onclick="setAppelState('${s.id}', 'Absent')">Absent</button>
-        </div>
-      </div>
-    `;
-  }).join("");
+  return streak;
 }
 
-function setAppelState(scoutId, state) {
-  quickAppelStates[scoutId] = state;
-  renderQuickAppel();
-}
+function sendParentMeetingInvitation(scoutId) {
+  const scout = (db.scouts || []).find((s) => s.id === scoutId);
+  if (!scout) return;
+  const streak = getConsecutiveAbsences(scoutId);
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
+  const salutation = scout.parent_nom ? `Bonjour ${scout.parent_nom}` : "Chers parents";
 
-function markAllAppel(state) {
-  const br = document.getElementById("appelBrancheSelect").value;
-  db.scouts.filter((s) => br === "Toutes" || s.branche === br).forEach((s) => {
-    quickAppelStates[s.id] = state;
-  });
-  renderQuickAppel();
-}
-
-function buildAppelMessages({ date, branche, theme, presentScouts, absentScouts }) {
-  const summary = [
-    `📋 POINT D'APPEL — GROUPE SCOUT OBION`,
-    `Date : ${date}`,
-    `Branche : ${branche}`,
-    `Thème : ${theme}`,
-    `Présents (${presentScouts.length}) : ${presentScouts.length ? presentScouts.map((s) => `${s.nom} ${s.prenom}`).join(", ") : "Aucun"}`,
-    `Absents (${absentScouts.length}) : ${absentScouts.length ? absentScouts.map((s) => `${s.nom} ${s.prenom}`).join(", ") : "Aucun"}`
+  const msg = [
+    `${salutation} (*Groupe OBION*),`,
+    "",
+    `Nous avons remarqué *${streak} absences consécutives* de *${scout.prenom} ${scout.nom}* (${scout.branche}) à nos réunions/activités.`,
+    "Nous souhaitons organiser une *rencontre avec vous* afin de faire le point avec bienveillance et veiller au bon accompagnement de votre enfant.",
+    "\nMerci de nous indiquer vos disponibilités cette semaine.",
+    `\n*${cgNom}* — Groupe OBION`
   ].join("\n");
 
-  const absentBtns = absentScouts.map((s) => {
-    const msgAbsent = `Bonjour chers parents (Groupe OBION), nous vous signalons que ${s.prenom} ${s.nom} (${s.branche}) était absent(e) à l'activité du ${date} (${theme}). Merci de nous tenir informés.`;
-    const waPhone = normalizeWaPhone(s.parent_tel);
-    const waUrl = waPhone ? `https://wa.me/${waPhone}?text=${encodeURIComponent(msgAbsent)}` : "";
-    return waUrl
-      ? `<a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-warning">WhatsApp absent : ${escapeHtml(s.prenom)} ${escapeHtml(s.nom)}</a>`
-      : `<span class="badge badge-gray">Absent sans tél : ${escapeHtml(s.prenom)} ${escapeHtml(s.nom)}</span>`;
-  }).join("");
-
-  return { summary, absentBtns };
-}
-
-async function saveQuickAppel() {
-  const br = document.getElementById("appelBrancheSelect").value;
-  const date = document.getElementById("appelDateInput").value || new Date().toISOString().slice(0, 10);
-  const theme = document.getElementById("appelThemeInput").value.trim() || "Réunion d'unité";
-  const targets = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
-
-  if (!targets.length) {
-    alert("Aucun jeune à enregistrer.");
-    return;
-  }
-
-  const presentScouts = targets.filter((s) => (quickAppelStates[s.id] || "Présent") === "Présent");
-  const absentScouts = targets.filter((s) => quickAppelStates[s.id] === "Absent");
-
-  db.presences.unshift({
-    id: uid("pres"),
-    date,
-    branche: br,
-    theme,
-    presents: presentScouts.map((s) => s.id),
-    absents: absentScouts.map((s) => s.id)
+  sendTrackedWhatsAppMessage({
+    phoneRaw: scout.parent_tel,
+    messageText: msg,
+    dedupKey: `rencontre_parents__${scout.id}`,
+    category: "Proposition rencontre parents (3 absences)",
+    recipientLabel: `${scout.prenom} ${scout.nom} (${scout.branche})`
   });
-
-  const { summary, absentBtns } = buildAppelMessages({ date, branche: br, theme, presentScouts, absentScouts });
-  document.getElementById("appelAutoMessageArea").value = summary;
-  document.getElementById("absentParentActions").innerHTML = absentBtns;
-  document.getElementById("appelAutoMessageBox").style.display = "block";
-  document.getElementById("appelThemeInput").value = "";
-
-  await persistDb("Enregistrement appel", `${br} — ${date}`);
 }
 
-function copyAppelAutoMessage() {
-  const txt = document.getElementById("appelAutoMessageArea").value || "";
-  if (!txt.trim()) return;
-  navigator.clipboard?.writeText(txt);
-  alert("Message d'appel copié !");
+async function markParentMeetingDone(scoutId) {
+  db.parentMeetingsDone[scoutId] = new Date().toISOString().slice(0, 10);
+  const scout = db.scouts.find((s) => s.id === scoutId);
+  await persistDb("Rencontre parents effectuée", scout ? `${scout.prenom} ${scout.nom}` : scoutId);
+  renderAll();
 }
 
-function printCurrentAppelSheet() {
-  const br = document.getElementById("appelBrancheSelect").value;
-  const date = document.getElementById("appelDateInput").value || new Date().toISOString().slice(0, 10);
-  const theme = document.getElementById("appelThemeInput").value.trim() || "Réunion d'unité";
-  const targets = db.scouts.filter((s) => br === "Toutes" || s.branche === br);
-
-  triggerPrintHtml(`
-    ${getPrintHeaderWithSideLogos("LISTE DE PRÉSENCE — GROUPE SCOUT OBION", `Branche : ${br} · Date : ${date} · Thème : ${theme}`)}
-    <table style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #333; padding:6px;">N°</th>
-          <th style="border:1px solid #333; padding:6px;">Nom & Prénoms</th>
-          <th style="border:1px solid #333; padding:6px;">Branche</th>
-          <th style="border:1px solid #333; padding:6px;">Statut</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${targets.map((s, idx) => `
-          <tr>
-            <td style="border:1px solid #333; padding:6px;">${idx + 1}</td>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</td>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(s.branche)}</td>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(quickAppelStates[s.id] || "Présent")}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-    ${getPrintCachetHtml("LISTE DE PRÉSENCE VALIDÉE")}
-  `);
-}
-
-function renderPresencesHistory() {
-  const tbody = document.getElementById("presencesHistoryBody");
-  const list = isCU() && currentUser.branche
-    ? db.presences.filter((p) => p.branche === currentUser.branche || p.branche === "Toutes")
-    : db.presences;
-
-  if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucun appel enregistré.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = list.map((p) => `
-    <tr>
-      <td>${escapeHtml(p.date)}</td>
-      <td>${escapeHtml(p.branche)}</td>
-      <td>${escapeHtml(p.theme)}</td>
-      <td><span class="badge badge-green">${(p.presents || []).length}</span></td>
-      <td><span class="badge badge-red">${(p.absents || []).length}</span></td>
-      <td>
-        <div class="actions-row">
-          <button type="button" class="btn btn-sm btn-secondary" onclick="showHistoryAppelMessage('${p.id}')">Messages</button>
-          ${canManageStructure() ? `<button type="button" class="btn btn-sm btn-danger" onclick="deletePresence('${p.id}')">Suppr.</button>` : ""}
-        </div>
-      </td>
-    </tr>
-  `).join("");
-}
-
-function showHistoryAppelMessage(presId) {
-  const p = db.presences.find((x) => x.id === presId);
-  if (!p) return;
-  const presentScouts = db.scouts.filter((s) => (p.presents || []).includes(s.id));
-  const absentScouts = db.scouts.filter((s) => (p.absents || []).includes(s.id));
-  const { summary, absentBtns } = buildAppelMessages({
-    date: p.date,
-    branche: p.branche,
-    theme: p.theme,
-    presentScouts,
-    absentScouts
-  });
-  document.getElementById("appelAutoMessageArea").value = summary;
-  document.getElementById("absentParentActions").innerHTML = absentBtns;
-  document.getElementById("appelAutoMessageBox").style.display = "block";
-}
-
-async function deletePresence(id) {
-  if (!canManageStructure()) return;
-  db.presences = db.presences.filter((p) => p.id !== id);
-  await persistDb("Suppression appel", id);
-}
-
-/* 4. PROGRAMME ANNUEL & IMPRESSION AVEC LOGOS GAUCHE/DROITE + CACHET */
-function renderProgrammeAnnuel() {
-  const cibleFilter = document.getElementById("filterActiviteCible").value;
-  let list = getScopedProgramme();
-  if (cibleFilter !== "all") list = list.filter((a) => a.cible === cibleFilter);
-
-  const cibleBadges = {
-    cg_only: `<span class="badge badge-purple">CG seul</span>`,
-    cu_only: `<span class="badge badge-amber">CU seul</span>`,
-    tous_chefs: `<span class="badge badge-green">Tous les chefs</span>`
-  };
-
-  const tbody = document.getElementById("activitesTableBody");
-  if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucune activité au programme.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = list.map((a) => `
-    <tr>
-      <td>${escapeHtml(a.date || "-")}</td>
-      <td><strong>${escapeHtml(a.titre)}</strong></td>
-      <td>
-        ${cibleBadges[a.cible] || escapeHtml(a.cible)}
-        ${a.branche ? `<span class="badge badge-blue">${escapeHtml(a.branche)}</span>` : ""}
-      </td>
-      <td>${Number(a.tarif || 0) > 0 ? formatMoney(a.tarif) : "Gratuit / Info"}</td>
-      <td>${escapeHtml(a.notes || "-")}</td>
-      <td>
-        ${canManageStructure() ? `
-          <button type="button" class="btn btn-sm btn-secondary" onclick="openActiviteModal('${a.id}')">Modifier</button>
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteActivite('${a.id}')">Suppr.</button>
-        ` : `<span class="badge badge-gray">Lecture</span>`}
-      </td>
-    </tr>
-  `).join("");
-}
-
-function openActiviteModal(id = null) {
-  if (!canManageStructure()) return;
-  const existing = id ? db.activites.find((a) => a.id === id) : null;
-  openModal(existing ? "Modifier l'activité du programme" : "Ajouter au programme annuel", `
-    <form onsubmit="saveActivite(event, '${existing ? existing.id : ""}')">
-      <div class="form-group"><label>Titre de l'activité *</label><input type="text" id="act_titre" value="${escapeHtml(existing ? existing.titre : "")}" required></div>
-      <div class="form-row">
-        <div class="form-group"><label>Date</label><input type="date" id="act_date" value="${escapeHtml(existing ? existing.date : new Date().toISOString().slice(0, 10))}"></div>
-        <div class="form-group">
-          <label>Cible</label>
-          <select id="act_cible">
-            <option value="tous_chefs" ${!existing || existing.cible === "tous_chefs" ? "selected" : ""}>Tous les chefs</option>
-            <option value="cu_only" ${existing && existing.cible === "cu_only" ? "selected" : ""}>CU uniquement</option>
-            <option value="cg_only" ${existing && existing.cible === "cg_only" ? "selected" : ""}>CG uniquement</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Branche (si ciblée)</label>
-          <select id="act_branche">
-            <option value="">Toutes / Groupe</option>
-            ${BRANCHES.map((b) => `<option value="${b}" ${existing && existing.branche === b ? "selected" : ""}>${b}</option>`).join("")}
-          </select>
-        </div>
-        <div class="form-group"><label>Tarif / Prix fixé (FCFA)</label><input type="number" id="act_tarif" min="0" value="${existing ? Number(existing.tarif || 0) : 0}"></div>
-      </div>
-      <div class="form-group"><label>Lieu / Notes</label><textarea id="act_notes">${escapeHtml(existing ? existing.notes : "")}</textarea></div>
-      <div class="actions-row">
-        <button type="submit" class="btn btn-success">Enregistrer</button>
-        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-      </div>
-    </form>
-  `);
-}
-
-async function saveActivite(e, id) {
-  e.preventDefault();
-  if (!canManageStructure()) return;
-  const payload = {
-    id: id || uid("act"),
-    titre: document.getElementById("act_titre").value.trim(),
-    date: document.getElementById("act_date").value,
-    cible: document.getElementById("act_cible").value,
-    branche: document.getElementById("act_branche").value,
-    tarif: Number(document.getElementById("act_tarif").value || 0),
-    notes: document.getElementById("act_notes").value.trim()
-  };
-  if (id) db.activites = db.activites.map((a) => (a.id === id ? payload : a));
-  else db.activites.unshift(payload);
-  closeModal();
-  await persistDb(id ? "Modification programme annuel" : "Ajout programme annuel", payload.titre);
-}
-
-async function deleteActivite(id) {
-  if (!canManageStructure()) return;
-  db.activites = db.activites.filter((a) => a.id !== id);
-  await persistDb("Suppression programme annuel", id);
-}
-
-function printProgrammeAnnuel() {
-  const list = getScopedProgramme();
-  const scopeLabel = isCU() ? `CU — Branche ${currentUser.branche}` : "Groupe OBION";
-  triggerPrintHtml(`
-    ${getPrintHeaderWithSideLogos("PROGRAMME D'ACTIVITÉS ANNUEL — GROUPE OBION", `Périmètre : ${scopeLabel}`)}
-    <table style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #333; padding:6px;">Date</th>
-          <th style="border:1px solid #333; padding:6px;">Activité</th>
-          <th style="border:1px solid #333; padding:6px;">Cible / Branche</th>
-          <th style="border:1px solid #333; padding:6px;">Tarif</th>
-          <th style="border:1px solid #333; padding:6px;">Notes</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${list.map((a) => `
-          <tr>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(a.date || "-")}</td>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(a.titre)}</td>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(a.cible)} ${a.branche ? "(" + escapeHtml(a.branche) + ")" : ""}</td>
-            <td style="border:1px solid #333; padding:6px;">${Number(a.tarif || 0) > 0 ? formatMoney(a.tarif) : "-"}</td>
-            <td style="border:1px solid #333; padding:6px;">${escapeHtml(a.notes || "-")}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-    ${getPrintCachetHtml("PROGRAMME ANNUEL OFFICIEL")}
-  `);
-}
-
-/* 5. CAMPS & AUTORISATION PARENTALE AVEC LOGOS GAUCHE/DROITE + CACHET */
-function renderCamps() {
-  const scope = document.getElementById("filterCampScope").value;
-  let list = getScopedCamps();
-  if (scope !== "all") list = list.filter((c) => c.type === scope);
-
-  const tbody = document.getElementById("campsTableBody");
-  if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucun camp visible.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = list.map((c) => `
-    <tr>
-      <td><strong>${escapeHtml(c.nom)}</strong></td>
-      <td>
-        <span class="badge badge-blue">${escapeHtml(c.type)}</span>
-        ${c.branche ? `<span class="badge badge-gray">${escapeHtml(c.branche)}</span>` : ""}
-      </td>
-      <td>${escapeHtml(c.dates || "-")}<br><small>${escapeHtml(c.lieu || "")}</small></td>
-      <td>${escapeHtml(c.superviseurs || "Chefs superviseurs")}</td>
-      <td>${formatMoney(c.frais || 0)}</td>
-      <td>
-        <div class="actions-row">
-          <button type="button" class="btn btn-sm btn-secondary" onclick="printAutorisationCamp('${c.id}')">📄 Autorisation</button>
-          ${canManageStructure() ? `
-            <button type="button" class="btn btn-sm btn-secondary" onclick="openCampModal('${c.id}')">Modifier</button>
-            <button type="button" class="btn btn-sm btn-danger" onclick="deleteCamp('${c.id}')">Suppr.</button>
-          ` : ""}
-        </div>
-      </td>
-    </tr>
-  `).join("");
-}
-
-function openCampModal(id = null) {
-  if (!canManageStructure()) return;
-  const existing = id ? db.camps.find((c) => c.id === id) : null;
-  openModal(existing ? "Modifier le camp" : "Nouveau camp", `
-    <form onsubmit="saveCamp(event, '${existing ? existing.id : ""}')">
-      <div class="form-group"><label>Nom du camp *</label><input type="text" id="cp_nom" value="${escapeHtml(existing ? existing.nom : "")}" required></div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Type</label>
-          <select id="cp_type" onchange="toggleCampBrancheInput()">
-            <option value="branche" ${!existing || existing.type === "branche" ? "selected" : ""}>Camp de branche</option>
-            <option value="groupe" ${existing && existing.type === "groupe" ? "selected" : ""}>Camp de groupe</option>
-            <option value="national" ${existing && existing.type === "national" ? "selected" : ""}>Camp national</option>
-          </select>
-        </div>
-        <div class="form-group" id="cp_branche_wrap">
-          <label>Branche</label>
-          <select id="cp_branche">
-            ${BRANCHES.map((b) => `<option value="${b}" ${existing && existing.branche === b ? "selected" : ""}>${b}</option>`).join("")}
-          </select>
-        </div>
-        <div class="form-group"><label>Frais / Prix fixé (FCFA)</label><input type="number" id="cp_frais" min="0" value="${existing ? Number(existing.frais || 0) : 0}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Dates</label><input type="text" id="cp_dates" value="${escapeHtml(existing ? existing.dates : "")}"></div>
-        <div class="form-group"><label>Lieu</label><input type="text" id="cp_lieu" value="${escapeHtml(existing ? existing.lieu : "")}"></div>
-      </div>
-      <div class="form-group"><label>Chefs superviseurs</label><input type="text" id="cp_superviseurs" value="${escapeHtml(existing ? existing.superviseurs : "")}"></div>
-      <div class="actions-row">
-        <button type="submit" class="btn btn-success">Enregistrer</button>
-        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-      </div>
-    </form>
-  `);
-  toggleCampBrancheInput();
-}
-
-function toggleCampBrancheInput() {
-  const wrap = document.getElementById("cp_branche_wrap");
-  if (wrap) wrap.style.display = document.getElementById("cp_type").value === "branche" ? "block" : "none";
-}
-
-async function saveCamp(e, id) {
-  e.preventDefault();
-  if (!canManageStructure()) return;
-  const type = document.getElementById("cp_type").value;
-  const payload = {
-    id: id || uid("camp"),
-    nom: document.getElementById("cp_nom").value.trim(),
-    type,
-    branche: type === "branche" ? document.getElementById("cp_branche").value : "",
-    frais: Number(document.getElementById("cp_frais").value || 0),
-    dates: document.getElementById("cp_dates").value.trim(),
-    lieu: document.getElementById("cp_lieu").value.trim(),
-    superviseurs: document.getElementById("cp_superviseurs").value.trim()
-  };
-  if (id) db.camps = db.camps.map((c) => (c.id === id ? payload : c));
-  else db.camps.unshift(payload);
-  closeModal();
-  await persistDb(id ? "Modification camp" : "Création camp", payload.nom);
-}
-
-async function deleteCamp(id) {
-  if (!canManageStructure()) return;
-  db.camps = db.camps.filter((c) => c.id !== id);
-  await persistDb("Suppression camp", id);
-}
-
-function printAutorisationCamp(campId) {
-  const camp = db.camps.find((c) => c.id === campId);
-  if (!camp) return;
-  triggerPrintHtml(`
-    ${getPrintHeaderWithSideLogos("AUTORISATION PARENTALE — GROUPE OBION", camp.nom)}
-    <p style="margin:12px 0;">Je soussigné(e), parent / tuteur légal, autorise mon enfant à participer au camp :</p>
-    <p><strong>Camp :</strong> ${escapeHtml(camp.nom)}</p>
-    <p><strong>Type / Branche :</strong> ${escapeHtml(camp.type)} ${camp.branche ? "— " + escapeHtml(camp.branche) : ""}</p>
-    <p><strong>Dates :</strong> ${escapeHtml(camp.dates || "À préciser")}</p>
-    <p><strong>Lieu :</strong> ${escapeHtml(camp.lieu || "À préciser")}</p>
-    <p><strong>Supervision :</strong> ${escapeHtml(camp.superviseurs || "Chefs du Groupe OBION")}</p>
-    <p style="margin-top:28px;">Signature du parent / tuteur : ___________________________</p>
-    ${getPrintCachetHtml("AUTORISATION DE CAMP")}
-  `);
-}
-
-/* 6. PÉDAGOGIE */
-function getBranchStepsList(branche) {
-  const raw = (db.settings && db.settings.prog && db.settings.prog[branche]) || "";
-  return raw
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-function renderPedagogie() {
-  const br = document.getElementById("pedagoBrancheSelect").value;
-  const refBox = document.getElementById("pedagoReferentielBox");
-  if (br && br !== "Toutes" && db.settings.prog && db.settings.prog[br]) {
-    refBox.innerHTML = `<strong>Référentiel ${escapeHtml(br)} :</strong> ${escapeHtml(db.settings.prog[br])}`;
-  } else {
-    refBox.innerHTML = Object.entries(db.settings.prog || {})
-      .map(([k, v]) => `<div><strong>${escapeHtml(k)} :</strong> ${escapeHtml(v)}</div>`)
-      .join("");
-  }
-
-  let list = getScopedScouts();
-  if (br && br !== "Toutes") list = list.filter((s) => s.branche === br);
-
-  document.getElementById("pedagoTableBody").innerHTML = list.length ? list.map((s) => `
-    <tr>
-      <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
-      <td>${escapeHtml(s.branche)}</td>
-      <td><span class="badge badge-green">${escapeHtml(s.etape_pedago || "Début")}</span></td>
-      <td>${escapeHtml(s.notes_pedago || "-")}</td>
-      <td><button type="button" class="btn btn-sm btn-secondary" onclick="openPedagoModal('${s.id}')">Mettre à jour</button></td>
-    </tr>
-  `).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun jeune.</td></tr>`;
-}
-
-function openPedagoReferentielModal() {
-  const selectedBr = document.getElementById("pedagoBrancheSelect").value;
-  const targetBr = selectedBr && selectedBr !== "Toutes" ? selectedBr : (isCU() && currentUser.branche ? currentUser.branche : "Meute");
-  const currentVal = (db.settings && db.settings.prog && db.settings.prog[targetBr]) || "";
-
-  openModal("Modifier les étapes de progression par branche", `
-    <form onsubmit="savePedagoReferentiel(event)">
-      <div class="form-group">
-        <label>Branche</label>
-        <select id="ref_branche" onchange="document.getElementById('ref_etapes').value = (db.settings.prog[this.value] || '')">
-          ${BRANCHES.map((b) => `<option value="${b}" ${b === targetBr ? "selected" : ""}>${b}</option>`).join("")}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Étapes de progression (séparées par des virgules)</label>
-        <textarea id="ref_etapes" required>${escapeHtml(currentVal)}</textarea>
-      </div>
-      <div class="actions-row">
-        <button type="submit" class="btn btn-success">Enregistrer les étapes</button>
-        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-      </div>
-    </form>
-  `);
-}
-
-async function savePedagoReferentiel(e) {
-  e.preventDefault();
-  const br = document.getElementById("ref_branche").value;
-  const etapes = document.getElementById("ref_etapes").value.trim();
-  if (!db.settings.prog || typeof db.settings.prog !== "object") {
-    db.settings.prog = {};
-  }
-  db.settings.prog[br] = etapes;
-  closeModal();
-  await persistDb("Mise à jour référentiel progression", `${br} : ${etapes}`);
-}
-
-function openPedagoModal(scoutId) {
-  const s = db.scouts.find((x) => x.id === scoutId);
-  if (!s) return;
-  const steps = getBranchStepsList(s.branche);
-  const stepOptionsHtml = steps.length
-    ? `<div class="form-group">
-        <label>Choisir une étape du référentiel (${escapeHtml(s.branche)})</label>
-        <select onchange="if(this.value) document.getElementById('pd_etape').value = this.value">
-          <option value="">-- Sélectionner une étape --</option>
-          ${steps.map((st) => `<option value="${escapeHtml(st)}" ${s.etape_pedago === st ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
-        </select>
-      </div>`
-    : "";
-
-  openModal(`Progression — ${s.nom} ${s.prenom}`, `
-    <form onsubmit="savePedago(event, '${s.id}')">
-      ${stepOptionsHtml}
-      <div class="form-group"><label>Étape actuelle</label><input type="text" id="pd_etape" value="${escapeHtml(s.etape_pedago || "")}"></div>
-      <div class="form-group"><label>Notes</label><textarea id="pd_notes">${escapeHtml(s.notes_pedago || "")}</textarea></div>
-      <div class="actions-row"><button type="submit" class="btn btn-success">Enregistrer</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>
-    </form>
-  `);
-}
-
-async function savePedago(e, scoutId) {
-  e.preventDefault();
-  db.scouts = db.scouts.map((s) => s.id === scoutId ? {
-    ...s,
-    etape_pedago: document.getElementById("pd_etape").value.trim(),
-    notes_pedago: document.getElementById("pd_notes").value.trim()
-  } : s);
-  closeModal();
-  await persistDb("Mise à jour pédagogie", scoutId);
-}
-function renderMateriel() {
-  document.getElementById("materielTableBody").innerHTML = db.materiel.length ? db.materiel.map((m) => `
-    <tr>
-      <td><strong>${escapeHtml(m.nom)}</strong></td>
-      <td>${Number(m.quantite || 0)}</td>
-      <td>${escapeHtml(m.etat || "Bon")}</td>
-      <td>${escapeHtml(m.affectation || "Groupe")}</td>
-      <td>
-        <button type="button" class="btn btn-sm btn-secondary" onclick="openMaterielModal('${m.id}')">Modifier</button>
-        <button type="button" class="btn btn-sm btn-danger" onclick="deleteMateriel('${m.id}')">Suppr.</button>
-      </td>
-    </tr>
-  `).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun matériel.</td></tr>`;
-}
-
-function openMaterielModal(id = null) {
-  const existing = id ? db.materiel.find((m) => m.id === id) : null;
-  openModal(existing ? "Modifier matériel" : "Ajouter matériel", `
-    <form onsubmit="saveMateriel(event, '${existing ? existing.id : ""}')">
-      <div class="form-row">
-        <div class="form-group"><label>Désignation *</label><input type="text" id="mat_nom" value="${escapeHtml(existing ? existing.nom : "")}" required></div>
-        <div class="form-group"><label>Quantité *</label><input type="number" id="mat_qte" min="0" value="${existing ? Number(existing.quantite || 0) : 1}" required></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>État</label><input type="text" id="mat_etat" value="${escapeHtml(existing ? existing.etat : "Bon état")}"></div>
-        <div class="form-group"><label>Affectation</label><input type="text" id="mat_aff" value="${escapeHtml(existing ? existing.affectation : "Groupe")}"></div>
-      </div>
-      <div class="actions-row"><button type="submit" class="btn btn-success">Enregistrer</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>
-    </form>
-  `);
-}
-
-async function saveMateriel(e, id) {
-  e.preventDefault();
-  const payload = {
-    id: id || uid("mat"),
-    nom: document.getElementById("mat_nom").value.trim(),
-    quantite: Number(document.getElementById("mat_qte").value || 0),
-    etat: document.getElementById("mat_etat").value.trim(),
-    affectation: document.getElementById("mat_aff").value.trim()
-  };
-  if (id) db.materiel = db.materiel.map((m) => (m.id === id ? payload : m));
-  else db.materiel.push(payload);
-  closeModal();
-  await persistDb(id ? "Modification matériel" : "Ajout matériel", payload.nom);
-}
-
-async function deleteMateriel(id) {
-  db.materiel = db.materiel.filter((m) => m.id !== id);
-  await persistDb("Suppression matériel", id);
-}
-
-/* 8. FINANCES, COTISATIONS, PAIEMENTS ACTIVITÉS/CAMPS, DONS & REÇUS */
-function renderWaveTresorerieBox() {
-  const box = document.getElementById("waveTresorerieBox");
-  const url = String((db.settings && db.settings.wave_url) || "").trim();
+function renderEffectifsAndPresences() {
+  const box = document.getElementById("scoutsListBox");
   if (!box) return;
-  if (!url) { box.style.display = "none"; return; }
-  box.style.display = "flex";
-  document.getElementById("waveTresorerieUrlLabel").textContent = url;
-  document.getElementById("waveTresorerieLinkBtn").href = url;
-}
+  const dateStr = document.getElementById("presenceDateInput")?.value || new Date().toISOString().slice(0, 10);
+  const branchFilter = document.getElementById("presenceBranchFilter")?.value || "Toutes";
 
-function copyWavePaymentLink() {
-  const url = String((db.settings && db.settings.wave_url) || "").trim();
-  if (!url) return alert("Aucun lien configuré.");
-  navigator.clipboard?.writeText(url);
-  alert("Lien copié !");
-}
+  const list = (db.scouts || []).filter((s) => {
+    if (currentUser && currentUser.role === "cu" && currentUser.branche && currentUser.branche !== "Toutes") {
+      if (s.branche !== currentUser.branche) return false;
+    }
+    if (branchFilter !== "Toutes" && s.branche !== branchFilter) return false;
+    return true;
+  });
 
-function getAvailableCotisationsOptions() {
-  const month = document.getElementById("financeMonthPicker")?.value || new Date().toISOString().slice(0, 7);
-  const base = [
-    { id: `mens_${month}`, label: `Cotisation mensuelle (${month})`, montant: Number(db.settings.cot_mens_j || 500) }
-  ];
-  const custom = (db.cotisationsCustom || []).map((c) => ({
-    id: c.id,
-    label: c.titre,
-    montant: Number(c.montant || 0)
-  }));
-  return [...base, ...custom];
-}
-
-function openCreateCustomCotisationModal() {
-  if (!canManageFinances()) return;
-  openModal("Créer une cotisation mensuelle ou spéciale", `
-    <form onsubmit="saveCustomCotisation(event)">
-      <div class="form-group"><label>Titre / Nom de la cotisation *</label><input type="text" id="cc_titre" placeholder="Ex: Cotisation mensuelle Décembre ou Cotisation tenue" required></div>
-      <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="cc_montant" min="0" value="${Number(db.settings.cot_mens_j || 500)}" required></div>
-      <div class="actions-row"><button type="submit" class="btn btn-success">Créer</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>
-    </form>
-  `);
-}
-
-async function saveCustomCotisation(e) {
-  e.preventDefault();
-  if (!canManageFinances()) return;
-  const titre = document.getElementById("cc_titre").value.trim();
-  const montant = Number(document.getElementById("cc_montant").value || 0);
-  db.cotisationsCustom.push({ id: uid("cot"), titre, montant });
-  closeModal();
-  await persistDb("Création cotisation", `${titre} (${formatMoney(montant)})`);
-}
-
-function getCotisationMembersList(targetGroup = "scouts") {
-  const brFilter = document.getElementById("cotFilterBranche")?.value || "Toutes";
-  const members = [];
-
-  if (targetGroup === "scouts" || targetGroup === "tous") {
-    (db.scouts || [])
-      .filter((s) => brFilter === "Toutes" || s.branche === brFilter)
-      .forEach((s) => {
-        members.push({
-          kind: "scout",
-          id: s.id,
-          nomComplet: `${s.nom} ${s.prenom}`,
-          branche: s.branche || "-",
-          roleLabel: s.fonction || "Jeune",
-          matricule: s.matricule || "",
-          cotAnnuellePaye: s.cotisation_annuelle === "paye"
-        });
-      });
+  if (!list.length) {
+    box.innerHTML = `<p class="muted">Aucun jeune enregistré pour ce filtre.</p>`;
+    return;
   }
 
-  if (targetGroup === "chefs" || targetGroup === "tous") {
-    (db.chefs || [])
-      .filter((c) => brFilter === "Toutes" || c.branche === brFilter)
-      .forEach((c) => {
-        members.push({
-          kind: "chef",
-          id: c.id,
-          nomComplet: c.nom,
-          branche: c.branche || "Groupe",
-          roleLabel: c.fonction || "Chef d'Unité",
-          matricule: c.matricule || "",
-          cotAnnuellePaye: null
-        });
-      });
+  box.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Jeune</th>
+            <th>Branche</th>
+            <th>Matricule</th>
+            <th>Absence suite</th>
+            <th>Statut (${escapeHtml(dateStr)})</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map((s) => {
+            const p = db.presences.find((x) => x.scoutId === s.id && x.date === dateStr);
+            const streak = getConsecutiveAbsences(s.id);
+            const meetingDone = Boolean(db.parentMeetingsDone[s.id]);
+            return `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(s.prenom)} ${escapeHtml(s.nom)}</strong>
+                  ${s.allergies ? `<br><span class="small muted">Santé : ${escapeHtml(s.allergies)}</span>` : ""}
+                </td>
+                <td>${escapeHtml(s.branche)}</td>
+                <td>${escapeHtml(s.matricule || "-")}</td>
+                <td>
+                  ${streak >= 3 && !meetingDone
+                    ? `<span class="badge badge-warning">${streak} abs. de suite — Rencontre parents</span>`
+                    : `<span class="badge badge-info">${streak} abs.</span>`}
+                </td>
+                <td>${p ? escapeHtml(p.status) : "Non pointé"}</td>
+                <td>
+                  <div class="actions-row">
+                    <button type="button" class="btn btn-sm btn-success" onclick="markPresence('${s.id}', 'present')">Présent</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="markPresence('${s.id}', 'absent')">Absent</button>
+                    ${streak >= 3 && !meetingDone
+                      ? `<button type="button" class="btn btn-sm btn-info" onclick="sendParentMeetingInvitation('${s.id}')">Rencontre</button>`
+                      : ""}
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// --- COTISATIONS (JEUNES & CHEFS) + RELANCES WAVE & CAPTURE D'ÉCRAN ---
+async function addCustomCotisation() {
+  const label = document.getElementById("newCustomCotLabel").value.trim();
+  const montant = Number(document.getElementById("newCustomCotAmount").value || 0);
+  if (!label) return;
+  db.cotisationsCustom.push({ id: uid("cot"), label, montant });
+  document.getElementById("newCustomCotLabel").value = "";
+  document.getElementById("newCustomCotAmount").value = "";
+  await persistDb("Création cotisation", `${label} (${formatMoney(montant)})`);
+  renderAll();
+}
+
+function getCotisationMeta(cotType) {
+  if (cotType === "annuelle") {
+    return {
+      id: "annuelle",
+      label: "Cotisation annuelle",
+      montant: Number(db.settings.cot_annuelle_j || 2500)
+    };
+  }
+  if (cotType === "mensuelle") {
+    return {
+      id: "mensuelle",
+      label: "Cotisation mensuelle",
+      montant: Number(db.settings.cot_mensuelle_j || 500)
+    };
+  }
+  const custom = (db.cotisationsCustom || []).find((c) => c.id === cotType);
+  return custom || { id: cotType, label: "Cotisation", montant: 0 };
+}
+
+async function toggleCotisationPayment(memberId, kind, cotId) {
+  const key = `${kind}__${memberId}__${cotId}`;
+  const isPaid = Boolean(db.cotisationPayments[key]);
+  db.cotisationPayments[key] = !isPaid;
+
+  const meta = getCotisationMeta(cotId);
+  if (!isPaid && meta.montant > 0) {
+    db.finances.unshift({
+      id: uid("fin"),
+      date: new Date().toISOString().slice(0, 10),
+      type: "recette",
+      libelle: `${meta.label} (${memberId})`,
+      montant: meta.montant
+    });
+  }
+  await persistDb("Paiement cotisation", `${key} -> ${!isPaid ? "Payée" : "Non payée"}`);
+  renderAll();
+}
+
+function sendCotisationReminderWhatsApp(memberId, kind, cotId) {
+  const meta = getCotisationMeta(cotId);
+  const wantWave = Boolean(document.getElementById("includeWaveInReminder")?.checked);
+  const waveUrl = String(db.settings.wave_url || "").trim();
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
+
+  let nom = "";
+  let branche = "";
+  let matriculeTxt = "";
+  let phone = "";
+  let salutation = "Chers parents";
+
+  if (kind === "chef") {
+    const chef = (db.chefs || []).find((c) => c.id === memberId);
+    if (!chef) return;
+    nom = chef.nom;
+    branche = chef.branche || "Groupe";
+    phone = chef.tel || "";
+    salutation = `Bonjour ${chef.nom}`;
+  } else {
+    const scout = (db.scouts || []).find((s) => s.id === memberId);
+    if (!scout) return;
+    nom = `${scout.prenom} ${scout.nom}`;
+    branche = scout.branche || "-";
+    matriculeTxt = cotId === "annuelle" && scout.matricule ? ` (Matricule : *${scout.matricule}*)` : "";
+    phone = scout.parent_tel || "";
+    salutation = scout.parent_nom ? `Bonjour ${scout.parent_nom}` : "Chers parents";
   }
 
-  return members;
+  const lines = [
+    `${salutation} (*Groupe OBION*),`,
+    "",
+    `Rappel amical concernant *${meta.label}* de *${nom}* (${branche})${matriculeTxt}.`,
+    meta.montant > 0 ? `Montant : *${formatMoney(meta.montant)}*.` : "",
+    wantWave && waveUrl ? `\n🌊 Lien Wave Business : ${waveUrl}` : "",
+    "\n📸 Merci de nous envoyer une *capture d'écran de confirmation* si possible après paiement afin que nous puissions valider votre règlement.",
+    "\nMerci pour votre soutien.",
+    `*${cgNom}* — Groupe OBION`
+  ].filter(Boolean);
+
+  sendTrackedWhatsAppMessage({
+    phoneRaw: phone,
+    messageText: lines.join("\n"),
+    dedupKey: `relance_cot__${cotId}__${kind}__${memberId}`,
+    category: `Relance ${meta.label}`,
+    recipientLabel: `${nom} (${branche})`
+  });
 }
 
 function renderCotisationsSuivi() {
-  if (!canManageFinances()) return;
-  const sel = document.getElementById("cotTypeSelect");
-  const prevVal = sel.value;
-  const opts = getAvailableCotisationsOptions();
-  sel.innerHTML = opts.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)} (${formatMoney(o.montant)})</option>`).join("");
-  if (prevVal && opts.some((o) => o.id === prevVal)) sel.value = prevVal;
+  const box = document.getElementById("cotisationsTableBox");
+  const typeSel = document.getElementById("cotTypeSelect");
+  const groupSel = document.getElementById("cotTargetGroupSelect");
+  if (!box || !typeSel || !groupSel) return;
 
-  const activeCot = opts.find((o) => o.id === sel.value) || opts[0];
-  const targetGroup = document.getElementById("cotTargetGroupSelect")?.value || "scouts";
-  const list = getCotisationMembersList(targetGroup);
+  // Synchroniser la liste des cotisations ponctuelles dans le sélecteur
+  const baseValues = ["annuelle", "mensuelle"];
+  Array.from(typeSel.options).forEach((opt) => {
+    if (!baseValues.includes(opt.value)) opt.remove();
+  });
+  (db.cotisationsCustom || []).forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = `${c.label} (${formatMoney(c.montant)})`;
+    typeSel.appendChild(opt);
+  });
 
-  document.getElementById("cotisationsSuiviBody").innerHTML = list.length ? list.map((m) => {
-    const key = `${activeCot.id}__${m.kind}__${m.id}`;
-    const legacyKey = `${activeCot.id}__${m.id}`;
-    const cotPaye = Boolean(db.cotisationPayments[key] || (m.kind === "scout" && db.cotisationPayments[legacyKey]));
+  const activeCotId = typeSel.value || "annuelle";
+  const targetGroup = groupSel.value || "all";
 
-    const annuelleCell = m.kind === "scout"
-      ? `
-        <div class="actions-row">
-          <button type="button" class="btn btn-sm ${m.cotAnnuellePaye ? "btn-success" : "btn-warning"}" onclick="toggleAnnuelleWithMatricule('${m.id}')">
-            ${m.cotAnnuellePaye ? "✅ Payée" : "❌ Non payée"}
-          </button>
-          <input type="text" value="${escapeHtml(m.matricule || "")}" placeholder="Matricule..."
-            style="min-height:32px; padding:4px 8px; width:125px;"
-            onchange="confirmAnnuelleByMatricule('${m.id}', this.value)">
-        </div>
-      `
-      : `<span class="badge badge-blue">${escapeHtml(m.roleLabel)}</span>`;
-
-    return `
-      <tr>
-        <td><strong>${escapeHtml(m.nomComplet)}</strong></td>
-        <td>${escapeHtml(m.branche)}</td>
-        <td>${annuelleCell}</td>
-        <td>
-          <button type="button" class="btn btn-sm ${cotPaye ? "btn-success" : "btn-secondary"}" onclick="toggleCustomCotPaymentByKey('${m.id}', '${activeCot.id}', '${m.kind}')">
-            ${cotPaye ? "✅ Payée" : "❌ Non payée"}
-          </button>
-        </td>
-        <td>
-          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForCot('${m.id}', '${activeCot.id}', '${m.kind}')">🧾 Reçu</button>
-        </td>
-      </tr>
-    `;
-  }).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun membre trouvé.</td></tr>`;
-}
-
-async function confirmAnnuelleByMatricule(scoutId, matVal) {
-  if (!canManageFinances()) return;
-  const scout = db.scouts.find((s) => s.id === scoutId);
-  if (!scout) return;
-  const cleanMat = String(matVal || "").trim();
-  const wasUnpaid = scout.cotisation_annuelle !== "paye";
-  scout.matricule = cleanMat;
-  if (cleanMat) {
-    scout.cotisation_annuelle = "paye";
-    if (wasUnpaid && Number(db.settings.cot_j_total || 0) > 0) {
-      db.finances.unshift({
-        id: uid("fin"),
-        date: new Date().toISOString().slice(0, 10),
-        type: "entree",
-        categorie: "Cotisation annuelle",
-        libelle: `Cotisation annuelle (Mat. ${cleanMat}) — ${scout.nom} ${scout.prenom}`,
-        montant: Number(db.settings.cot_j_total || 2500)
+  const rows = [];
+  if (targetGroup === "all" || targetGroup === "scout") {
+    (db.scouts || []).forEach((s) => {
+      rows.push({
+        id: s.id,
+        kind: "scout",
+        nom: `${s.prenom} ${s.nom}`,
+        roleLabel: "Jeune",
+        branche: s.branche || "-",
+        matricule: activeCotId === "annuelle" ? (s.matricule || "Sans matricule") : "-"
       });
-    }
+    });
   }
-  await persistDb("Matricule / Cotisation annuelle", `${scout.nom} ${scout.prenom} (${cleanMat || "effacé"})`);
+  if (targetGroup === "all" || targetGroup === "chef") {
+    (db.chefs || []).forEach((c) => {
+      rows.push({
+        id: c.id,
+        kind: "chef",
+        nom: c.nom,
+        roleLabel: "Chef d'Unité",
+        branche: c.branche || "Groupe",
+        matricule: "-"
+      });
+    });
+  }
+
+  if (!rows.length) {
+    box.innerHTML = `<p class="muted">Aucun membre à afficher.</p>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Membre</th>
+            <th>Profil</th>
+            <th>Branche</th>
+            <th>Matricule</th>
+            <th>Statut</th>
+            <th>Suivi message</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r) => {
+            const paid = Boolean(db.cotisationPayments[`${r.kind}__${r.id}__${activeCotId}`]);
+            const dedupKey = `relance_cot__${activeCotId}__${r.kind}__${r.id}`;
+            return `
+              <tr>
+                <td><strong>${escapeHtml(r.nom)}</strong></td>
+                <td>${escapeHtml(r.roleLabel)}</td>
+                <td>${escapeHtml(r.branche)}</td>
+                <td>${escapeHtml(r.matricule)}</td>
+                <td>${paid ? `<span class="badge badge-success">Payée</span>` : `<span class="badge badge-warning">Non payée</span>`}</td>
+                <td>${getMessageStatusBadge(dedupKey)}</td>
+                <td>
+                  <div class="actions-row">
+                    <button type="button" class="btn btn-sm ${paid ? "btn-secondary" : "btn-success"}" onclick="toggleCotisationPayment('${r.id}', '${r.kind}', '${activeCotId}')">
+                      ${paid ? "Annuler" : "Marquer payée"}
+                    </button>
+                    ${!paid ? `<button type="button" class="btn btn-sm btn-info" onclick="sendCotisationReminderWhatsApp('${r.id}', '${r.kind}', '${activeCotId}')">Relancer</button>` : ""}
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
-async function toggleAnnuelleWithMatricule(scoutId) {
-  if (!canManageFinances()) return;
-  const scout = db.scouts.find((s) => s.id === scoutId);
+// --- REÇUS + IMPRESSION FIABLE + ENVOI WHATSAPP ---
+function populateReceiptScoutSelect() {
+  const sel = document.getElementById("rc_scout");
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = `<option value="">-- Sélectionner un jeune (optionnel) --</option>` +
+    (db.scouts || []).map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.prenom)} ${escapeHtml(s.nom)} (${escapeHtml(s.branche)})</option>`).join("");
+  sel.value = current;
+}
+
+function prefillReceiptFromScout() {
+  const id = document.getElementById("rc_scout")?.value;
+  const scout = (db.scouts || []).find((s) => s.id === id);
   if (!scout) return;
-
-  if (scout.cotisation_annuelle !== "paye") {
-    const mat = prompt(`Saisir le numéro de matricule de ${scout.nom} ${scout.prenom} pour confirmer le paiement annuel :`, scout.matricule || "");
-    if (!mat || !mat.trim()) {
-      alert("Le numéro de matricule est requis pour confirmer la cotisation annuelle.");
-      return;
-    }
-    scout.matricule = mat.trim();
-    scout.cotisation_annuelle = "paye";
-    db.finances.unshift({
-      id: uid("fin"),
-      date: new Date().toISOString().slice(0, 10),
-      type: "entree",
-      categorie: "Cotisation annuelle",
-      libelle: `Cotisation annuelle (Mat. ${scout.matricule}) — ${scout.nom} ${scout.prenom}`,
-      montant: Number(db.settings.cot_j_total || 2500)
-    });
-    await persistDb("Confirmation cotisation annuelle", `${scout.nom} ${scout.prenom} (Mat. ${scout.matricule})`);
-  } else {
-    if (!confirm(`Passer la cotisation annuelle de ${scout.nom} ${scout.prenom} en Non payée ?`)) return;
-    scout.cotisation_annuelle = "en_attente";
-    await persistDb("Annulation cotisation annuelle", `${scout.nom} ${scout.prenom}`);
-  }
+  document.getElementById("rc_detail").value = `${scout.prenom} ${scout.nom} — ${scout.branche}${scout.matricule ? ` (Mat: ${scout.matricule})` : ""}`;
 }
 
-async function toggleCustomCotPaymentByKey(memberId, cotId, kind = "scout") {
-  if (!canManageFinances()) return;
-  const opts = getAvailableCotisationsOptions();
-  const activeCot = opts.find((o) => o.id === cotId) || opts[0];
-  if (!activeCot) return;
-
-  const member = kind === "chef"
-    ? (db.chefs || []).find((c) => c.id === memberId)
-    : (db.scouts || []).find((s) => s.id === memberId);
-  if (!member) return;
-
-  const memberName = kind === "chef" ? member.nom : `${member.nom} ${member.prenom}`;
-  const key = `${activeCot.id}__${kind}__${memberId}`;
-  const nextState = !db.cotisationPayments[key];
-  db.cotisationPayments[key] = nextState;
-
-  if (nextState && Number(activeCot.montant || 0) > 0) {
-    db.finances.unshift({
-      id: uid("fin"),
-      date: new Date().toISOString().slice(0, 10),
-      type: "entree",
-      categorie: "Cotisation",
-      libelle: `${activeCot.label} (${kind === "chef" ? "Chef" : "Jeune"}) — ${memberName}`,
-      montant: Number(activeCot.montant)
-    });
-  }
-  await persistDb(nextState ? "Paiement cotisation" : "Retrait paiement cotisation", `${activeCot.label} — ${memberName}`);
-}
-
-function openReceiptForCot(memberId, cotId, kind = "scout") {
-  const opts = getAvailableCotisationsOptions();
-  const activeCot = opts.find((o) => o.id === cotId) || opts[0];
-  const member = kind === "chef"
-    ? (db.chefs || []).find((c) => c.id === memberId)
-    : (db.scouts || []).find((s) => s.id === memberId);
-
-  if (kind === "chef" && member) {
-    openReceiptModal();
-    setTimeout(() => {
-      const det = document.getElementById("rc_detail");
-      const mnt = document.getElementById("rc_montant");
-      if (det) det.value = `${activeCot ? activeCot.label : "Cotisation mensuelle"} — ${member.nom} (${member.branche || "Groupe"})`;
-      if (mnt) mnt.value = activeCot ? activeCot.montant : (db.settings.cot_mens_j || 500);
-    }, 30);
-    return;
-  }
-
-  openReceiptForScout(memberId, activeCot ? activeCot.label : "Cotisation", activeCot ? activeCot.montant : 500);
-}
-
-/* PAIEMENTS PAR ACTIVITÉ OU CAMP À PRIX FIXÉ */
-function getPaidActivitiesList() {
-  return [
-    ...db.activites.filter((a) => Number(a.tarif || 0) > 0).map((a) => ({ id: a.id, title: `[Programme] ${a.titre}`, price: Number(a.tarif || 0) })),
-    ...db.camps.filter((c) => Number(c.frais || 0) > 0).map((c) => ({ id: c.id, title: `[Camp] ${c.nom}`, price: Number(c.frais || 0) }))
-  ];
-}
-
-function renderActivityPaymentsList() {
-  if (!canManageFinances()) return;
-  const paidActs = getPaidActivitiesList();
-  const sel = document.getElementById("paidActivitySelect");
-  const prev = sel.value;
-  sel.innerHTML = paidActs.length
-    ? paidActs.map((x) => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.title)} (${formatMoney(x.price)})</option>`).join("")
-    : `<option value="">Aucune activité / camp avec tarif fixé</option>`;
-
-  if (prev && paidActs.some((x) => x.id === prev)) sel.value = prev;
-  const current = paidActs.find((x) => x.id === sel.value) || paidActs[0];
-
-  if (!current) {
-    document.getElementById("activityPaymentSummary").textContent = "Ajoutez un tarif sur une activité ou un camp pour pointer qui a payé.";
-    document.getElementById("activityPaymentsBody").innerHTML = "";
-    return;
-  }
-
-  const paidCount = db.scouts.filter((s) => Boolean(db.activityPayments[`${current.id}__${s.id}`])).length;
-  document.getElementById("activityPaymentSummary").innerHTML =
-    `Tarif : <strong>${formatMoney(current.price)}</strong> · Payé : <strong>${paidCount}</strong> / ${db.scouts.length} jeune(s)`;
-
-  document.getElementById("activityPaymentsBody").innerHTML = db.scouts.map((s) => {
-    const isPaid = Boolean(db.activityPayments[`${current.id}__${s.id}`]);
-    return `
-      <tr>
-        <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
-        <td>${escapeHtml(s.branche)}</td>
-        <td>
-          <button type="button" class="btn btn-sm ${isPaid ? "btn-success" : "btn-warning"}" onclick="toggleActivityPaymentById('${current.id}', '${s.id}')">
-            ${isPaid ? "✅ Payé" : "❌ Non payé"}
-          </button>
-        </td>
-        <td>
-          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptForActivity('${s.id}', '${current.id}')">🧾 Reçu</button>
-        </td>
-      </tr>
-    `;
-  }).join("");
-}
-
-async function toggleActivityPaymentById(actId, scoutId) {
-  if (!canManageFinances()) return;
-  const scout = db.scouts.find((s) => s.id === scoutId);
-  const current = getPaidActivitiesList().find((x) => x.id === actId);
-  if (!scout || !current) return;
-
-  const key = `${current.id}__${scoutId}`;
-  const nextPaid = !db.activityPayments[key];
-  db.activityPayments[key] = nextPaid;
-
-  if (nextPaid && Number(current.price || 0) > 0) {
-    db.finances.unshift({
-      id: uid("fin"),
-      date: new Date().toISOString().slice(0, 10),
-      type: "entree",
-      categorie: "Activité / Camp",
-      libelle: `${current.title} — ${scout.nom} ${scout.prenom}`,
-      montant: Number(current.price)
-    });
-  }
-  await persistDb(nextPaid ? "Paiement activité/camp" : "Annulation paiement activité/camp", `${current.title} — ${scout.nom} ${scout.prenom}`);
-}
-
-function openReceiptForActivity(scoutId, actId) {
-  const current = getPaidActivitiesList().find((x) => x.id === actId);
-  openReceiptForScout(scoutId, current ? current.title : "Activité", current ? current.price : 0);
-}
-
-function renderFinances() {
-  if (!canManageFinances()) return;
-  renderWaveTresorerieBox();
-  renderCotisationsSuivi();
-  renderActivityPaymentsList();
-
-  const month = document.getElementById("financeMonthPicker").value || new Date().toISOString().slice(0, 7);
-  const monthEntries = db.finances.filter((f) => String(f.date || "").startsWith(month));
-  const entreesMois = monthEntries.filter((f) => f.type === "entree").reduce((a, b) => a + Number(b.montant || 0), 0);
-  const sortiesMois = monthEntries.filter((f) => f.type === "sortie").reduce((a, b) => a + Number(b.montant || 0), 0);
-  const soldeGlobal = db.finances.reduce((a, b) => a + (b.type === "entree" ? Number(b.montant || 0) : -Number(b.montant || 0)), 0);
-  const partEccEstimee = db.scouts.filter((s) => s.cotisation_annuelle === "paye" && s.matricule).length * Number(db.settings.cot_j_ascci || 2085);
-
-  document.getElementById("financeKpiGrid").innerHTML = `
-    <div class="kpi-box"><div class="kpi-label">Entrées (${escapeHtml(month)})</div><div class="kpi-value" style="color:var(--success);">${formatMoney(entreesMois)}</div></div>
-    <div class="kpi-box"><div class="kpi-label">Sorties (${escapeHtml(month)})</div><div class="kpi-value" style="color:var(--danger);">${formatMoney(sortiesMois)}</div></div>
-    <div class="kpi-box"><div class="kpi-label">Solde global</div><div class="kpi-value">${formatMoney(soldeGlobal)}</div></div>
-    <div class="kpi-box"><div class="kpi-label">Repère part ECC confirmée</div><div class="kpi-value">${formatMoney(partEccEstimee)}</div></div>
-  `;
-
-  document.getElementById("financesTableBody").innerHTML = db.finances.length ? db.finances.map((f) => `
-    <tr>
-      <td>${escapeHtml(f.date || "-")}</td>
-      <td>${f.type === "entree" ? `<span class="badge badge-green">Entrée</span>` : `<span class="badge badge-red">Sortie</span>`}</td>
-      <td>${escapeHtml(f.categorie || "Général")}</td>
-      <td><strong>${escapeHtml(f.libelle)}</strong></td>
-      <td><strong>${formatMoney(f.montant)}</strong></td>
-      <td>
-        <div class="actions-row">
-          <button type="button" class="btn btn-sm btn-secondary" onclick="openFinanceModal('${f.id}')">Modifier</button>
-          <button type="button" class="btn btn-sm btn-accent" onclick="openReceiptModal('${f.id}')">Reçu</button>
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteFinanceEntry('${f.id}')">Suppr.</button>
-        </div>
-      </td>
-    </tr>
-  `).join("") : `<tr><td colspan="6" style="text-align:center; color:var(--muted);">Aucune écriture.</td></tr>`;
-
-  document.getElementById("donsTableBody").innerHTML = db.dons.length ? db.dons.map((d) => `
-    <tr>
-      <td>${escapeHtml(d.date || "-")}</td>
-      <td><strong>${escapeHtml(d.donateur)}</strong></td>
-      <td><span class="badge badge-blue">${escapeHtml(d.nature)}</span></td>
-      <td>${d.nature === "Financier" ? formatMoney(d.montant) : escapeHtml(d.description || "")}</td>
-      <td><button type="button" class="btn btn-sm btn-danger" onclick="deleteDon('${d.id}')">Suppr.</button></td>
-    </tr>
-  `).join("") : `<tr><td colspan="5" style="text-align:center; color:var(--muted);">Aucun don.</td></tr>`;
-
-  document.getElementById("auditLogTableBody").innerHTML = db.auditLog.length ? db.auditLog.slice(0, 30).map((l) => `
-    <tr>
-      <td>${escapeHtml(l.date)}</td>
-      <td>${escapeHtml(l.auteur)}</td>
-      <td>${escapeHtml(l.action)}</td>
-      <td>${escapeHtml(l.detail)}</td>
-    </tr>
-  `).join("") : `<tr><td colspan="4" style="text-align:center; color:var(--muted);">Aucune trace.</td></tr>`;
-}
-
-function openFinanceModal(id = null) {
-  if (!canManageFinances()) return;
-  const existing = id ? db.finances.find((f) => f.id === id) : null;
-  openModal(existing ? "Modifier écriture" : "Ajouter écriture", `
-    <form onsubmit="saveFinanceEntry(event, '${existing ? existing.id : ""}')">
-      <div class="form-row">
-        <div class="form-group"><label>Date *</label><input type="date" id="fin_date" value="${escapeHtml(existing ? existing.date : new Date().toISOString().slice(0, 10))}" required></div>
-        <div class="form-group">
-          <label>Type *</label>
-          <select id="fin_type">
-            <option value="entree" ${!existing || existing.type === "entree" ? "selected" : ""}>Entrée</option>
-            <option value="sortie" ${existing && existing.type === "sortie" ? "selected" : ""}>Sortie</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="fin_montant" min="0" step="any" value="${existing ? Number(existing.montant || 0) : ""}" required></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Catégorie</label><input type="text" id="fin_cat" value="${escapeHtml(existing ? existing.categorie : "Trésorerie")}"></div>
-        <div class="form-group"><label>Libellé *</label><input type="text" id="fin_libelle" value="${escapeHtml(existing ? existing.libelle : "")}" required></div>
-      </div>
-      <div class="actions-row"><button type="submit" class="btn btn-success">Enregistrer</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>
-    </form>
-  `);
-}
-
-async function saveFinanceEntry(e, id) {
-  e.preventDefault();
-  if (!canManageFinances()) return;
-  const payload = {
-    id: id || uid("fin"),
-    date: document.getElementById("fin_date").value,
-    type: document.getElementById("fin_type").value,
-    montant: Number(document.getElementById("fin_montant").value || 0),
-    categorie: document.getElementById("fin_cat").value.trim() || "Trésorerie",
-    libelle: document.getElementById("fin_libelle").value.trim()
-  };
-  if (id) db.finances = db.finances.map((f) => (f.id === id ? payload : f));
-  else db.finances.unshift(payload);
-  closeModal();
-  await persistDb(id ? "Modification écriture" : "Ajout écriture", `${payload.libelle} (${formatMoney(payload.montant)})`);
-}
-
-async function deleteFinanceEntry(id) {
-  if (!canManageFinances()) return;
-  if (!confirm("Supprimer cette écriture ?")) return;
-  const target = db.finances.find((f) => f.id === id);
-  db.finances = db.finances.filter((f) => f.id !== id);
-  await persistDb("Suppression écriture", target ? target.libelle : id);
-}
-
-function openDonModal() {
-  if (!canManageFinances()) return;
-  openModal("Enregistrer un don", `
-    <form onsubmit="saveDon(event)">
-      <div class="form-row">
-        <div class="form-group"><label>Donateur *</label><input type="text" id="don_donateur" required></div>
-        <div class="form-group">
-          <label>Nature</label>
-          <select id="don_nature" onchange="toggleDonMontant()">
-            <option value="Financier">Financier</option>
-            <option value="En nature">En nature</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Date</label><input type="date" id="don_date" value="${new Date().toISOString().slice(0, 10)}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group" id="don_montant_wrap"><label>Montant (FCFA)</label><input type="number" id="don_montant" min="0" value="0"></div>
-        <div class="form-group"><label>Description</label><input type="text" id="don_desc"></div>
-      </div>
-      <div class="actions-row"><button type="submit" class="btn btn-success">Enregistrer</button><button type="button" class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>
-    </form>
-  `);
-}
-
-function toggleDonMontant() {
-  const wrap = document.getElementById("don_montant_wrap");
-  if (wrap) wrap.style.display = document.getElementById("don_nature").value === "Financier" ? "block" : "none";
-}
-
-async function saveDon(e) {
-  e.preventDefault();
-  if (!canManageFinances()) return;
-  const donateur = document.getElementById("don_donateur").value.trim();
-  const nature = document.getElementById("don_nature").value;
-  const date = document.getElementById("don_date").value;
-  const montant = Number(document.getElementById("don_montant").value || 0);
-  const description = document.getElementById("don_desc").value.trim();
-
-  db.dons.unshift({ id: uid("don"), donateur, nature, date, montant, description });
-  if (nature === "Financier" && montant > 0) {
-    db.finances.unshift({
-      id: uid("fin"),
-      date,
-      type: "entree",
-      categorie: "Don",
-      libelle: `Don de ${donateur}${description ? " — " + description : ""}`,
-      montant
-    });
-  }
-  closeModal();
-  await persistDb("Enregistrement don", `${donateur} (${nature})`);
-}
-
-async function deleteDon(id) {
-  if (!canManageFinances()) return;
-  db.dons = db.dons.filter((d) => d.id !== id);
-  await persistDb("Suppression don", id);
-}
-
-/* REÇUS AVEC LOGOS GAUCHE/DROITE + CACHET */
-function openReceiptModal(financeId = null) {
-  if (!canManageFinances()) return;
-  const f = financeId ? db.finances.find((x) => x.id === financeId) : null;
-  const scoutOptions = db.scouts.map((s) => `<option value="${s.id}">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)} (${escapeHtml(s.branche)})</option>`).join("");
-
-  openModal("Générer un reçu de paiement", `
-    <form onsubmit="buildReceiptPreview(event)">
-      <div class="form-row">
-        <div class="form-group"><label>Jeune / Membre</label><select id="rc_scout">${scoutOptions}</select></div>
-        <div class="form-group">
-          <label>Motif</label>
-          <select id="rc_motif">
-            <option value="Cotisation mensuelle">Cotisation mensuelle</option>
-            <option value="Paiement d'activité">Paiement d'activité</option>
-            <option value="Participation camp">Participation camp</option>
-            <option value="Autre cotisation">Autre cotisation</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Montant (FCFA) *</label><input type="number" id="rc_montant" min="1" value="${f ? Number(f.montant || 0) : Number(db.settings.cot_mens_j || 500)}" required></div>
-        <div class="form-group"><label>Date *</label><input type="date" id="rc_date" value="${escapeHtml(f && f.date ? f.date : new Date().toISOString().slice(0, 10))}" required></div>
-        <div class="form-group"><label>Précision</label><input type="text" id="rc_detail" value="${escapeHtml(f ? f.libelle : "")}"></div>
-      </div>
-      <button type="submit" class="btn btn-accent">Prévisualiser le reçu</button>
-    </form>
-    <div id="receiptPreviewArea" style="margin-top:16px;"></div>
-  `);
-}
-
-function openReceiptForScout(scoutId, motifLabel, montantVal) {
-  openReceiptModal();
-  setTimeout(() => {
-    const sel = document.getElementById("rc_scout");
-    const det = document.getElementById("rc_detail");
-    const mnt = document.getElementById("rc_montant");
-    if (sel) sel.value = scoutId;
-    if (det) det.value = motifLabel;
-    if (mnt) mnt.value = montantVal;
-  }, 30);
-}
-
-function buildReceiptPreview(e) {
-  e.preventDefault();
-  const scout = db.scouts.find((s) => s.id === document.getElementById("rc_scout").value);
-  const motif = document.getElementById("rc_motif").value;
+function generateReceipt(event) {
+  event.preventDefault();
+  const scoutId = document.getElementById("rc_scout").value;
+  const scout = (db.scouts || []).find((s) => s.id === scoutId);
+  const numero = document.getElementById("rc_numero").value.trim() || `OBN-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+  const date = document.getElementById("rc_date").value || new Date().toISOString().slice(0, 10);
   const montant = Number(document.getElementById("rc_montant").value || 0);
-  const date = document.getElementById("rc_date").value;
+  const motif = document.getElementById("rc_motif").value.trim();
   const detail = document.getElementById("rc_detail").value.trim();
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
 
-  const nomJeune = scout ? `${scout.nom} ${scout.prenom}` : "Membre";
-  const brancheJeune = scout ? scout.branche : "";
+  const beneficiaire = scout ? `${scout.prenom} ${scout.nom} (${scout.branche})` : (detail || "Membre Groupe OBION");
 
-  lastReceiptText = [
-    `REÇU DE PAIEMENT — GROUPE SCOUT OBION`,
-    `Date : ${date}`,
-    `Membre : ${nomJeune} (${brancheJeune})`,
-    `Motif : ${motif}${detail ? " — " + detail : ""}`,
-    `Montant : ${formatMoney(montant)}`
-  ].join("\n");
-
-  document.getElementById("receiptPreviewArea").innerHTML = `
-    <div class="receipt-box" id="printableReceiptCard">
-      ${getPrintHeaderWithSideLogos("REÇU DE PAIEMENT — GROUPE OBION", `Date : ${date}`)}
-      <p><strong>Membre :</strong> ${escapeHtml(nomJeune)} ${brancheJeune ? `(${escapeHtml(brancheJeune)})` : ""}</p>
-      <p><strong>Motif :</strong> ${escapeHtml(motif)} ${detail ? `— ${escapeHtml(detail)}` : ""}</p>
-      <p style="margin-top:8px; font-size:1.05rem;"><strong>Montant :</strong> ${formatMoney(montant)}</p>
-      ${getPrintCachetHtml("REÇU TRÉSORERIE VALIDÉ")}
-    </div>
-    <div class="actions-row" style="margin-top:12px;">
-      <button type="button" class="btn btn-sm btn-success" onclick="copyLastReceipt()">📋 Copier le reçu</button>
-      <button type="button" class="btn btn-sm btn-secondary" onclick="printReceiptCard()">🖨️ Imprimer / PDF</button>
+  const htmlCard = `
+    <div>
+      <strong>GROUPE OBION — REÇU OFFICIEL</strong><br>
+      <span class="small muted">N° : ${escapeHtml(numero)} | Date : ${escapeHtml(date)}</span>
+      <hr class="mt-2" />
+      <p><strong>Reçu de :</strong> ${escapeHtml(beneficiaire)}</p>
+      ${scout && scout.matricule ? `<p><strong>Matricule :</strong> ${escapeHtml(scout.matricule)}</p>` : ""}
+      <p><strong>Motif :</strong> ${escapeHtml(motif)}</p>
+      ${detail ? `<p><strong>Détails :</strong> ${escapeHtml(detail)}</p>` : ""}
+      <p><strong>Montant encaissé :</strong> ${escapeHtml(formatMoney(montant))}</p>
+      <p class="small muted mt-2">Validé par : ${escapeHtml(cgNom)}</p>
     </div>
   `;
+
+  document.getElementById("printableReceiptCard").innerHTML = htmlCard;
+  lastReceiptText = [
+    `N° Reçu : *${numero}*`,
+    `Date : ${date}`,
+    `Membre : *${beneficiaire}*`,
+    scout && scout.matricule ? `Matricule : ${scout.matricule}` : "",
+    `Motif : ${motif}`,
+    `Montant : *${formatMoney(montant)}*`
+  ].filter(Boolean).join("\n");
 }
 
-function copyLastReceipt() {
-  if (!lastReceiptText) return;
-  navigator.clipboard?.writeText(lastReceiptText);
-  alert("Reçu copié !");
+function triggerPrintHtml(htmlContent) {
+  const overlay = document.getElementById("printOverlay");
+  if (!overlay) return;
+  overlay.innerHTML = htmlContent;
+  window.print();
 }
 
 function printReceiptCard() {
   const card = document.getElementById("printableReceiptCard");
-  if (!card) return;
-  triggerPrintHtml(card.outerHTML);
+  if (!card || !card.innerHTML.trim()) return;
+  triggerPrintHtml(card.innerHTML);
 }
 
-function printPointMensuel() {
-  const month = document.getElementById("financeMonthPicker").value || new Date().toISOString().slice(0, 7);
-  const rows = db.finances.filter((f) => String(f.date || "").startsWith(month));
-  const entrees = rows.filter((f) => f.type === "entree").reduce((a, b) => a + Number(b.montant || 0), 0);
-  const sorties = rows.filter((f) => f.type === "sortie").reduce((a, b) => a + Number(b.montant || 0), 0);
+function sendCurrentReceiptByWhatsApp() {
+  const scoutId = document.getElementById("rc_scout")?.value || "";
+  const scout = (db.scouts || []).find((s) => s.id === scoutId);
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
+  const body = lastReceiptText || document.getElementById("printableReceiptCard")?.innerText || "";
+  if (!body.trim()) return;
 
-  triggerPrintHtml(`
-    ${getPrintHeaderWithSideLogos(`POINT FINANCIER MENSUEL (${month}) — GROUPE OBION`, `Entrées : ${formatMoney(entrees)} · Sorties : ${formatMoney(sorties)} · Solde : ${formatMoney(entrees - sorties)}`)}
-    <table style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #999; padding:6px;">Date</th>
-          <th style="border:1px solid #999; padding:6px;">Type</th>
-          <th style="border:1px solid #999; padding:6px;">Libellé</th>
-          <th style="border:1px solid #999; padding:6px;">Montant</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((r) => `
-          <tr>
-            <td style="border:1px solid #999; padding:6px;">${escapeHtml(r.date)}</td>
-            <td style="border:1px solid #999; padding:6px;">${escapeHtml(r.type)}</td>
-            <td style="border:1px solid #999; padding:6px;">${escapeHtml(r.libelle)}</td>
-            <td style="border:1px solid #999; padding:6px;">${formatMoney(r.montant)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-    ${getPrintCachetHtml("POINT MENSUEL VALIDÉ")}
-  `);
+  const msg = `🧾 *REÇU OFFICIEL — GROUPE OBION*\n\n${body}\n\n*${cgNom}* — Groupe OBION`;
+  sendTrackedWhatsAppMessage({
+    phoneRaw: scout ? scout.parent_tel : "",
+    messageText: msg,
+    dedupKey: `recu_wa__${scoutId || "libre"}__${Date.now().toString().slice(-5)}`,
+    category: "Envoi reçu WhatsApp",
+    recipientLabel: scout ? `${scout.prenom} ${scout.nom}` : "Reçu"
+  });
 }
 
-/* 9. ANNONCES PARENTS */
-function applyAnnonceTemplate() {
-  const tpl = document.getElementById("annonceTemplate").value;
-  const br = document.getElementById("annonceBrancheSelect").value;
-  const scoutId = document.getElementById("annonceScoutSelect").value;
-  const sc = db.scouts.find((x) => x.id === scoutId);
-  const jeuneNom = sc ? `${sc.prenom} ${sc.nom}` : "votre enfant";
-  const mensMontant = formatMoney(db.settings.cot_mens_j || 500);
-
-  const presets = {
-    cotisation_mensuelle: `Bonjour chers parents (Groupe OBION), nous vous informons de la mise en place / du suivi de la cotisation mensuelle des jeunes (${mensMontant}). Merci pour votre accompagnement.`,
-    eglise_tenue: `Bonjour chers parents (Groupe OBION), lors de notre prochaine activité à l'église, tous les jeunes doivent impérativement être en tenue scoute complète. Merci de bien le préparer.`,
-    tenue_manquante: `Bonjour chers parents (Groupe OBION), nous signalons que ${jeuneNom} n'a pas encore de tenue scoute complète. Merci de prévoir de régulariser cela afin qu'il/elle soit prêt(e) pour les activités.`,
-    nouvelles_regles: `Bonjour chers parents (Groupe OBION), de nouvelles consignes de vie et d'organisation ont été arrêtées pour ${isCU() ? "la branche " + br : "le groupe"}. Merci de veiller à leur bonne application.`,
-    libre: ""
+// --- ACTIVITÉS, RAPPELS CU & PROGRAMME ---
+async function addActivity(event) {
+  event.preventDefault();
+  const act = {
+    id: uid("act"),
+    titre: document.getElementById("act_titre").value.trim(),
+    date: document.getElementById("act_date").value,
+    date_limite_paiement: document.getElementById("act_deadline").value,
+    branche: document.getElementById("act_branche").value,
+    lieu: document.getElementById("act_lieu").value.trim(),
+    forCu: Boolean(document.getElementById("act_for_cu").checked)
   };
-
-  const area = document.getElementById("annonceTextArea");
-  if (area && tpl !== "libre") {
-    area.value = presets[tpl] || "";
-  }
+  db.activites.push(act);
+  event.target.reset();
+  await persistDb("Nouvelle activité", `${act.titre} (${act.date})`);
+  renderAll();
 }
 
-function renderAnnonceRecipients() {
-  const mode = document.getElementById("annonceTargetMode").value;
-  const brWrap = document.getElementById("annonceBrancheWrap");
-  const scWrap = document.getElementById("annonceScoutWrap");
-  const scSelect = document.getElementById("annonceScoutSelect");
-
-  const baseList = getScopedScouts();
-  const prevScout = scSelect.value;
-  scSelect.innerHTML = baseList.map((s) => `<option value="${s.id}">${escapeHtml(s.nom)} ${escapeHtml(s.prenom)} (${escapeHtml(s.branche)})</option>`).join("");
-  if (prevScout && baseList.some((s) => s.id === prevScout)) scSelect.value = prevScout;
-
-  if (isCU() && currentUser.branche) {
-    brWrap.style.display = "none";
-    document.getElementById("annonceBrancheSelect").value = currentUser.branche;
-  } else {
-    brWrap.style.display = mode === "branche" ? "block" : "none";
-  }
-  scWrap.style.display = mode === "jeune" ? "block" : "none";
-
-  let filtered = baseList;
-  if (mode === "branche") {
-    const selectedBr = isCU() && currentUser.branche ? currentUser.branche : document.getElementById("annonceBrancheSelect").value;
-    filtered = filtered.filter((s) => s.branche === selectedBr);
-  } else if (mode === "jeune") {
-    filtered = filtered.filter((s) => s.id === scSelect.value);
-  }
-
-  const msg = encodeURIComponent(document.getElementById("annonceTextArea").value || "");
-  document.getElementById("annonceRecipientsBody").innerHTML = filtered.length ? filtered.map((s) => {
-    const waPhone = normalizeWaPhone(s.parent_tel);
-    return `
-      <tr>
-        <td><strong>${escapeHtml(s.nom)} ${escapeHtml(s.prenom)}</strong></td>
-        <td>${escapeHtml(s.branche)}</td>
-        <td>${escapeHtml(s.parent_nom || "Parent")} — ${escapeHtml(s.parent_tel || "Pas de numéro")}</td>
-        <td>
-          ${waPhone
-            ? `<a href="https://wa.me/${waPhone}?text=${msg}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-success">WhatsApp</a>`
-            : `<span class="badge badge-gray">Numéro absent</span>`}
-        </td>
-      </tr>
-    `;
-  }).join("") : `<tr><td colspan="4" style="text-align:center; color:var(--muted);">Aucun destinataire.</td></tr>`;
+async function acknowledgeCuActivity(activityId) {
+  const ackKey = `${activityId}__${currentUser && currentUser.chefId ? currentUser.chefId : "cu"}`;
+  db.cuAckLogs[ackKey] = new Date().toISOString().slice(0, 10);
+  await persistDb("Accusé réception activité CU", activityId);
+  renderAll();
 }
 
-function copyAnnonceMessage() {
-  const txt = document.getElementById("annonceTextArea").value || "";
-  if (!txt.trim()) return alert("Le message est vide.");
-  navigator.clipboard?.writeText(txt);
-  alert("Message copié !");
+function remindCuForActivity(activityId) {
+  const act = (db.activites || []).find((a) => a.id === activityId);
+  if (!act) return;
+  const targets = (db.chefs || []).filter((c) => !act.branche || act.branche === "Toutes" || c.branche === act.branche);
+  const firstPhone = targets.find((c) => c.tel)?.tel || "";
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
+
+  const msg = [
+    `🔔 *RAPPEL ACTIVITÉ / RÉUNION — GROUPE OBION*`,
+    "",
+    `Activité : *${act.titre}*`,
+    `📅 Date : *${act.date}*`,
+    act.lieu ? `📍 Lieu : *${act.lieu}*` : "",
+    act.branche && act.branche !== "Toutes" ? `Branche : ${act.branche}` : "",
+    "\nMerci de confirmer votre disponibilité / présence.",
+    `*${cgNom}*`
+  ].filter(Boolean).join("\n");
+
+  sendTrackedWhatsAppMessage({
+    phoneRaw: firstPhone,
+    messageText: msg,
+    dedupKey: `rappel_cu_act__${act.id}`,
+    category: "Rappel activité CU",
+    recipientLabel: `${act.titre} (${act.branche})`
+  });
 }
 
-/* 10. PARAMÈTRES & EXPORTS */
-function renderSettingsInputs() {
-  if (!isCG()) return;
-  const st = db.settings;
-  document.getElementById("cfg_cg_nom").value = st.cg_nom || "";
-  document.getElementById("cfg_cg_tel").value = st.cg_tel || "";
-  document.getElementById("cfg_wave_url").value = st.wave_url || "";
-  document.getElementById("cfg_cot_j_total").value = st.cot_j_total ?? 2500;
-  document.getElementById("cfg_cot_j_ascci").value = st.cot_j_ascci ?? 2085;
-  document.getElementById("cfg_cot_j_groupe").value = st.cot_j_groupe ?? 415;
-  document.getElementById("cfg_cot_mens_j").value = st.cot_mens_j ?? 500;
-  document.getElementById("cfg_pin_cg").value = (st.pins && st.pins.cg) || "1111";
-  document.getElementById("cfg_pin_fin").value = (st.pins && st.pins.financier) || "2222";
-  document.getElementById("cfg_pin_cu").value = (st.pins && st.pins.cu) || "3333";
-  document.getElementById("cfg_cachet_actif").value = String(Boolean(st.cachet_actif));
+async function addProgramEvent(event) {
+  event.preventDefault();
+  const ev = {
+    id: uid("prog"),
+    titre: document.getElementById("prog_titre").value.trim(),
+    date: document.getElementById("prog_date").value,
+    rappelJoursAvant: Number(document.getElementById("prog_rappel_jours").value || 7),
+    branche: document.getElementById("prog_branche").value,
+    details: document.getElementById("prog_details").value.trim()
+  };
+  db.programmeEvents.push(ev);
+  event.target.reset();
+  document.getElementById("prog_rappel_jours").value = "7";
+  await persistDb("Ajout programme", `${ev.titre} (${ev.date})`);
+  renderAll();
 }
 
-async function saveSettings(e) {
-  e.preventDefault();
-  if (!isCG()) return;
-  db.settings = {
-    ...db.settings,
-    cg_nom: document.getElementById("cfg_cg_nom").value.trim(),
-    cg_tel: document.getElementById("cfg_cg_tel").value.trim(),
-    wave_url: document.getElementById("cfg_wave_url").value.trim(),
-    cot_j_total: Number(document.getElementById("cfg_cot_j_total").value || 0),
-    cot_j_ascci: Number(document.getElementById("cfg_cot_j_ascci").value || 0),
-    cot_j_groupe: Number(document.getElementById("cfg_cot_j_groupe").value || 0),
-    cot_mens_j: Number(document.getElementById("cfg_cot_mens_j").value || 0),
-    cachet_actif: document.getElementById("cfg_cachet_actif").value === "true",
-    pins: {
-      cg: document.getElementById("cfg_pin_cg").value.trim() || "1111",
-      financier: document.getElementById("cfg_pin_fin").value.trim() || "2222",
-      cu: document.getElementById("cfg_pin_cu").value.trim() || "3333"
+function sendProgramInfoToParents(eventId) {
+  const ev = (db.programmeEvents || []).find((e) => e.id === eventId);
+  if (!ev) return;
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
+  const targetScout = (db.scouts || []).find((s) => !ev.branche || ev.branche === "Toutes" || s.branche === ev.branche);
+
+  const msg = [
+    `Bonjour chers parents (*Groupe OBION*),`,
+    "",
+    `Information au programme : *${ev.titre}*`,
+    `📅 Date : *${ev.date}*`,
+    ev.branche && ev.branche !== "Toutes" ? `Branche : *${ev.branche}*` : "",
+    ev.details ? `\nℹ️ ${ev.details}` : "",
+    "\nMerci pour votre accompagnement.",
+    `*${cgNom}* — Groupe OBION`
+  ].filter(Boolean).join("\n");
+
+  sendTrackedWhatsAppMessage({
+    phoneRaw: targetScout ? targetScout.parent_tel : "",
+    messageText: msg,
+    dedupKey: `prog_info__${ev.id}`,
+    category: "Info programme parents",
+    recipientLabel: `${ev.titre} (${ev.branche})`
+  });
+}
+
+function renderActivitiesAndProgram() {
+  const actBox = document.getElementById("activitiesListBox");
+  const progBox = document.getElementById("programListBox");
+
+  if (actBox) {
+    if (!db.activites.length) {
+      actBox.innerHTML = `<p class="muted">Aucune activité enregistrée.</p>`;
+    } else {
+      actBox.innerHTML = db.activites.map((a) => {
+        const dLeft = daysUntilDate(a.date);
+        const ackKey = `${a.id}__${currentUser && currentUser.chefId ? currentUser.chefId : "cu"}`;
+        const isAck = Boolean(db.cuAckLogs[ackKey]);
+        return `
+          <div class="alert-item ${a.forCu && dLeft !== null && dLeft <= 2 && dLeft >= 0 ? "alert-warning" : "alert-info"}">
+            <div>
+              <strong>${escapeHtml(a.titre)}</strong> — <span class="small">${escapeHtml(a.date)} (${escapeHtml(a.branche)})</span><br>
+              <span class="small muted">${escapeHtml(a.lieu || "Lieu à préciser")}${a.forCu ? " • Signal CU actif" : ""}</span>
+            </div>
+            <div class="actions-row">
+              ${a.forCu ? `<button type="button" class="btn btn-sm btn-info" onclick="remindCuForActivity('${a.id}')">Rappel CU</button>` : ""}
+              ${a.forCu && currentUser && currentUser.role === "cu"
+                ? `<button type="button" class="btn btn-sm ${isAck ? "btn-secondary" : "btn-success"}" onclick="acknowledgeCuActivity('${a.id}')">${isAck ? "✓ Vu" : "Accuser réception"}</button>`
+                : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
     }
+  }
+
+  if (progBox) {
+    if (!db.programmeEvents.length) {
+      progBox.innerHTML = `<p class="muted">Aucun événement dans le programme.</p>`;
+    } else {
+      progBox.innerHTML = db.programmeEvents.map((ev) => {
+        const dedupKey = `prog_info__${ev.id}`;
+        return `
+          <div class="alert-item alert-info">
+            <div>
+              <strong>${escapeHtml(ev.titre)}</strong> — <span class="small">${escapeHtml(ev.date)} (${escapeHtml(ev.branche)})</span><br>
+              <span class="small muted">${escapeHtml(ev.details || "")}</span>
+            </div>
+            <div class="actions-row">
+              ${getMessageStatusBadge(dedupKey)}
+              <button type="button" class="btn btn-sm btn-primary" onclick="sendProgramInfoToParents('${ev.id}')">Info parents</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+  }
+}
+
+// --- BANDEAU CENTRALISÉ "À TRAITER MAINTENANT" (J-14, PROGRAMME, 3 ABSENCES, CU) ---
+function renderSmartRemindersPanel() {
+  const box = document.getElementById("smartRemindersBox");
+  if (!box) return;
+  const alerts = [];
+
+  // 1. Cotisation nationale (alerte dès J-14)
+  if (db.settings.cot_nationale_deadline) {
+    const dLeft = daysUntilDate(db.settings.cot_nationale_deadline);
+    if (dLeft !== null && dLeft <= 14 && dLeft >= -3) {
+      alerts.push({
+        cls: "alert-warning",
+        title: "Cotisation nationale — Échéance proche (J-14)",
+        detail: `Limite fixée le ${db.settings.cot_nationale_deadline} (${dLeft >= 0 ? `dans ${dLeft} j` : `dépassée de ${Math.abs(dLeft)} j`}). Pensez à relancer les familles.`,
+        btnText: "Voir cotisations",
+        action: "switchTab('finances')"
+      });
+    }
+  }
+
+  // 2. Activités avec date limite / date proche (J-14)
+  (db.activites || []).forEach((a) => {
+    const refDate = a.date_limite_paiement || a.date;
+    const dLeft = daysUntilDate(refDate);
+    if (dLeft !== null && dLeft <= 14 && dLeft >= -1) {
+      alerts.push({
+        cls: "alert-info",
+        title: `Activité : ${a.titre} (${refDate})`,
+        detail: `Échéance dans ${dLeft} jour(s). Vérifiez les règlements et rappels.`,
+        btnText: "Activités",
+        action: "switchTab('activites')"
+      });
+    }
+  });
+
+  // 3. Programme : rappel d'envoi d'information aux parents
+  (db.programmeEvents || []).forEach((ev) => {
+    const dLeft = daysUntilDate(ev.date);
+    const notice = Number(ev.rappelJoursAvant || 7);
+    const alreadySent = Boolean(findRecentMessageLog(`prog_info__${ev.id}`, 21));
+    if (dLeft !== null && dLeft <= notice && dLeft >= 0 && !alreadySent) {
+      alerts.push({
+        cls: "alert-warning",
+        title: `Programme : envoyer info parents pour "${ev.titre}"`,
+        detail: `Prévu le ${ev.date} (dans ${dLeft} jour(s)).`,
+        btnText: "Envoyer info",
+        action: `sendProgramInfoToParents('${ev.id}')`
+      });
+    }
+  });
+
+  // 4. Rappel CU pour réunions / activités proches (J-1 / J-0)
+  (db.activites || []).forEach((a) => {
+    if (!a.forCu) return;
+    const dLeft = daysUntilDate(a.date);
+    const ackKey = `${a.id}__${currentUser && currentUser.chefId ? currentUser.chefId : "cu"}`;
+    const isAck = Boolean(db.cuAckLogs[ackKey]);
+    if (dLeft !== null && dLeft <= 1 && dLeft >= 0 && !isAck) {
+      alerts.push({
+        cls: "alert-warning",
+        title: `Signal CU : ${a.titre} (${dLeft === 0 ? "Aujourd'hui" : "Demain"})`,
+        detail: `Lieu : ${a.lieu || "À préciser"} — Branche : ${a.branche}.`,
+        btnText: currentUser && currentUser.role === "cu" ? "Accuser réception" : "Rappel CU",
+        action: currentUser && currentUser.role === "cu" ? `acknowledgeCuActivity('${a.id}')` : `remindCuForActivity('${a.id}')`
+      });
+    }
+  });
+
+  // 5. 3 absences consécutives -> rencontre parents
+  (db.scouts || []).forEach((s) => {
+    const streak = getConsecutiveAbsences(s.id);
+    if (streak >= 3 && !db.parentMeetingsDone[s.id]) {
+      alerts.push({
+        cls: "alert-warning",
+        title: `3 absences consécutives : ${s.prenom} ${s.nom} (${s.branche})`,
+        detail: `${streak} absences d'affilée — Rencontre avec les parents recommandée.`,
+        btnText: "Inviter parents",
+        action: `sendParentMeetingInvitation('${s.id}')`
+      });
+    }
+  });
+
+  if (!alerts.length) {
+    box.innerHTML = `<p class="muted small">Aucune alerte urgente à traiter maintenant.</p>`;
+    return;
+  }
+
+  box.innerHTML = alerts.map((al) => `
+    <div class="alert-item ${al.cls}">
+      <div>
+        <strong>${escapeHtml(al.title)}</strong><br>
+        <span class="small">${escapeHtml(al.detail)}</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-primary" onclick="${al.action}">${escapeHtml(al.btnText)}</button>
+    </div>
+  `).join("");
+}
+
+// --- TABLEAU DE BORD, BILAN PAR BRANCHE & LOGS ---
+function renderDashboard() {
+  const statsBox = document.getElementById("dashboardStats");
+  const branchBox = document.getElementById("branchSummaryBox");
+  const absBox = document.getElementById("absencesAlertsBox");
+  const logsBox = document.getElementById("recentLogsBox");
+
+  const totalScouts = (db.scouts || []).length;
+  const totalChefs = (db.chefs || []).length;
+  const totalRecettes = (db.finances || [])
+    .filter((f) => f.type === "recette")
+    .reduce((acc, f) => acc + Number(f.montant || 0), 0);
+  const alerts3Abs = (db.scouts || []).filter((s) => getConsecutiveAbsences(s.id) >= 3 && !db.parentMeetingsDone[s.id]);
+
+  if (statsBox) {
+    statsBox.innerHTML = `
+      <div class="stat-box"><div class="muted small">Jeunes inscrits</div><div class="stat-value">${totalScouts}</div></div>
+      <div class="stat-box"><div class="muted small">Chefs d'Unité</div><div class="stat-value">${totalChefs}</div></div>
+      <div class="stat-box"><div class="muted small">Encaissements enregistrés</div><div class="stat-value">${escapeHtml(formatMoney(totalRecettes))}</div></div>
+      <div class="stat-box"><div class="muted small">Alertes 3 absences</div><div class="stat-value">${alerts3Abs.length}</div></div>
+    `;
+  }
+
+  if (branchBox) {
+    branchBox.innerHTML = BRANCHES.map((br) => {
+      const count = (db.scouts || []).filter((s) => s.branche === br).length;
+      return `<div class="alert-item alert-info"><strong>${escapeHtml(br)}</strong><span>${count} jeune(s)</span></div>`;
+    }).join("");
+  }
+
+  if (absBox) {
+    if (!alerts3Abs.length) {
+      absBox.innerHTML = `<p class="muted small">Aucun jeune avec 3 absences consécutives non suivies.</p>`;
+    } else {
+      absBox.innerHTML = alerts3Abs.map((s) => `
+        <div class="alert-item alert-warning">
+          <div>
+            <strong>${escapeHtml(s.prenom)} ${escapeHtml(s.nom)}</strong> (${escapeHtml(s.branche)})<br>
+            <span class="small">${getConsecutiveAbsences(s.id)} absences de suite</span>
+          </div>
+          <div class="actions-row">
+            <button type="button" class="btn btn-sm btn-info" onclick="sendParentMeetingInvitation('${s.id}')">Proposer rencontre</button>
+            <button type="button" class="btn btn-sm btn-success" onclick="markParentMeetingDone('${s.id}')">Rencontre faite</button>
+          </div>
+        </div>
+      `).join("");
+    }
+  }
+
+  if (logsBox) {
+    const items = (db.messageLogs || []).slice(0, 8);
+    logsBox.innerHTML = items.length
+      ? items.map((l) => `<div class="small" style="padding:5px 0; border-bottom:1px solid var(--border);"><strong>${escapeHtml(l.category)}</strong> — ${escapeHtml(l.recipientLabel || "")} <span class="muted">(${escapeHtml(String(l.sentAt || "").slice(0, 16).replace("T", " "))})</span></div>`).join("")
+      : `<p class="muted small">Aucune activité récente enregistrée.</p>`;
+  }
+}
+
+// --- PARAMÈTRES & EXPORTS ---
+function populateSettingsForm() {
+  const s = db.settings || {};
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v ?? "";
   };
-  await persistDb("Mise à jour paramètres", "Configuration du groupe");
-  alert("Paramètres enregistrés !");
+  setVal("set_cg_nom", s.cg_nom);
+  setVal("set_cg_tel", s.cg_tel);
+  setVal("set_wave_url", s.wave_url);
+  setVal("set_cot_annuelle", s.cot_annuelle_j);
+  setVal("set_cot_mensuelle", s.cot_mensuelle_j);
+  setVal("set_cot_nationale_deadline", s.cot_nationale_deadline);
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  db.settings.cg_nom = document.getElementById("set_cg_nom").value.trim() || "Chef de Groupe Obion";
+  db.settings.cg_tel = document.getElementById("set_cg_tel").value.trim();
+  db.settings.wave_url = document.getElementById("set_wave_url").value.trim();
+  db.settings.cot_annuelle_j = Number(document.getElementById("set_cot_annuelle").value || 2500);
+  db.settings.cot_mensuelle_j = Number(document.getElementById("set_cot_mensuelle").value || 500);
+  db.settings.cot_nationale_deadline = document.getElementById("set_cot_nationale_deadline").value;
+  await persistDb("Mise à jour paramètres", db.settings.cg_nom);
+  renderAll();
+  alert("Paramètres enregistrés.");
 }
 
 function exportBackupJson() {
   const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = `obion-erp-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
+  a.href = URL.createObjectURL(blob);
+  a.download = `obion_erp_sauvegarde_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(a.href);
 }
 
-async function importBackupJson(e) {
-  if (!isCG()) return;
-  const file = e.target.files && e.target.files[0];
+async function restoreBackupJson(event) {
+  const file = event.target.files && event.target.files[0];
   if (!file) return;
   try {
-    db = normalizeDb(JSON.parse(await file.text()));
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    db = normalizeDbStructure(parsed);
     await persistDb("Restauration sauvegarde JSON", file.name);
-    alert("Sauvegarde restaurée !");
-  } catch (err) {
+    renderAll();
+    alert("Sauvegarde restaurée avec succès.");
+  } catch (e) {
     alert("Fichier JSON invalide.");
   }
 }
 
-function exportEffectifsCsv() {
-  const list = getScopedScouts();
-  const headers = ["Nom", "Prenoms", "Branche", "Sexe", "Tenue", "Parent", "Telephone", "Matricule"];
-  const lines = [
-    headers.join(";"),
-    ...list.map((s) => [
-      s.nom, s.prenom, s.branche, s.sexe,
-      s.tenue_complete ? "Complete" : "Incomplete",
-      s.parent_nom || "", s.parent_tel || "", s.matricule || ""
-    ].map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(";"))
-  ];
-  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
+function exportScoutsCsv() {
+  const header = ["Prenom", "Nom", "Branche", "Matricule", "Parent", "Tel_Parent", "Allergies"];
+  const lines = [header.join(";")];
+  (db.scouts || []).forEach((s) => {
+    lines.push([
+      s.prenom,
+      s.nom,
+      s.branche,
+      s.matricule || "",
+      s.parent_nom || "",
+      s.parent_tel || "",
+      s.allergies || ""
+    ].map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(";"));
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
   const a = document.createElement("a");
-  a.href = url;
-  a.download = `effectifs-obion-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.href = URL.createObjectURL(blob);
+  a.download = `obion_effectifs_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(a.href);
 }
 
-function openModal(title, htmlContent) {
-  document.getElementById("modalTitle").textContent = title;
-  document.getElementById("modalBody").innerHTML = htmlContent;
-  document.getElementById("genericModal").classList.add("open");
+function renderAll() {
+  populateChefLoginSelect();
+  populateReceiptScoutSelect();
+  populateSettingsForm();
+  renderSmartRemindersPanel();
+  renderDashboard();
+  renderEffectifsAndPresences();
+  renderCotisationsSuivi();
+  renderActivitiesAndProgram();
 }
 
-function closeModal() {
-  document.getElementById("genericModal").classList.remove("open");
-}
+document.addEventListener("DOMContentLoaded", async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const pDate = document.getElementById("presenceDateInput");
+  const rDate = document.getElementById("rc_date");
+  if (pDate && !pDate.value) pDate.value = today;
+  if (rDate && !rDate.value) rDate.value = today;
 
-window.addEventListener("DOMContentLoaded", () => {
-  startRealtimeSync();
-  if (currentUser) showAppShell();
-  else toggleLoginBranch();
+  await initAppData();
+  populateChefLoginSelect();
+
+  try {
+    const savedSession = sessionStorage.getItem(SESSION_KEY);
+    if (savedSession) {
+      currentUser = JSON.parse(savedSession);
+      if (currentUser && currentUser.role) {
+        showAppShell();
+        return;
+      }
+    }
+  } catch (e) {}
+
+  document.getElementById("loginScreen").style.display = "grid";
 });

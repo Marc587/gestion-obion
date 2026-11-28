@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -5,19 +6,88 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ERP Scout — Groupe OBION</title>
   <link rel="icon" href="./logo-app.jpg" />
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./style.css?v=3" />
+
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <style>
+    html {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #f4f6fb;
+      color: #172033;
+    }
+
+    body {
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .logo-sm {
+      width: 44px !important;
+      height: 44px !important;
+      object-fit: contain !important;
+    }
+
+    .container {
+      width: min(1200px, calc(100% - 24px));
+      margin: 18px auto;
+    }
+
+    .card,
+    .login-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 16px #0f172a0a;
+    }
+
+    button,
+    .btn {
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: #fff;
+    }
+
+    input,
+    select,
+    textarea {
+      font: inherit;
+      max-width: 100%;
+      padding: 9px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+    }
+  </style>
 </head>
+
 <body>
   <!-- ÉCRAN DE CONNEXION -->
   <section id="loginScreen" class="login-wrap">
     <div class="login-card">
       <div class="brand-head">
-        <img src="./logo-app.jpg" alt="Logo Groupe OBION" class="logo-sm" onerror="this.style.display='none'" />
+        <img
+          src="./logo-app.jpg"
+          alt="Logo Groupe OBION"
+          class="logo-sm"
+          onerror="this.style.display='none'"
+        />
+
         <div>
           <h1>ERP Groupe OBION</h1>
-          <p class="muted">Gestion scoute, cotisations, présences &amp; communication terrain</p>
+          <p class="muted">
+            Gestion scoute, cotisations, présences &amp; communication terrain
+          </p>
         </div>
       </div>
 
@@ -38,10 +108,19 @@
 
         <div class="form-group">
           <label for="pinInput">Code PIN</label>
-          <input type="password" id="pinInput" inputmode="numeric" maxlength="8" placeholder="Ex : 1111" required />
+          <input
+            type="password"
+            id="pinInput"
+            inputmode="numeric"
+            maxlength="8"
+            placeholder="Ex : 1111"
+            required
+          />
         </div>
 
-        <button type="submit" class="btn btn-primary btn-block">Se connecter</button>
+        <button type="submit" class="btn btn-primary btn-block">
+          Se connecter
+        </button>
       </form>
     </div>
   </section>
@@ -50,7 +129,14 @@
   <div id="appShell" class="app-shell" style="display:none;">
     <header class="topbar no-print">
       <div class="topbar-left">
-        <img id="headerLogoApp" src="./logo-app.jpg" alt="OBION" class="logo-sm" onerror="this.style.display='none'" />
+        <img
+          id="headerLogoApp"
+          src="./logo-app.jpg"
+          alt="OBION"
+          class="logo-sm"
+          onerror="this.style.display='none'"
+        />
+
         <div>
           <div class="app-title">Groupe OBION — ERP</div>
           <div id="userBadgeLine" class="muted small"></div>
@@ -58,34 +144,100 @@
       </div>
 
       <div class="topbar-right">
-        <span id="syncStatusBadge" class="badge badge-info">Synchronisé</span>
-        <button type="button" class="btn btn-sm btn-secondary" onclick="exportBackupJson()">Sauvegarde JSON</button>
-        <button type="button" class="btn btn-sm btn-danger" onclick="logout()">Déconnexion</button>
+        <span id="syncStatusBadge" class="badge badge-info">
+          Synchronisé
+        </span>
+
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          onclick="exportBackupJson()"
+        >
+          Sauvegarde JSON
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-sm btn-danger"
+          onclick="logout()"
+        >
+          Déconnexion
+        </button>
       </div>
     </header>
 
     <nav class="tabs no-print" aria-label="Navigation principale">
-      <button type="button" class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Tableau de bord</button>
-      <button type="button" class="tab-btn" data-tab="effectifs" onclick="switchTab('effectifs')">Effectifs &amp; Présences</button>
-      <button type="button" class="tab-btn" data-tab="finances" onclick="switchTab('finances')">Cotisations &amp; Reçus</button>
-      <button type="button" class="tab-btn" data-tab="activites" onclick="switchTab('activites')">Activités &amp; Programme</button>
-      <button type="button" class="tab-btn" data-tab="parametres" onclick="switchTab('parametres')">Paramètres</button>
+      <button
+        type="button"
+        class="tab-btn active"
+        data-tab="dashboard"
+        onclick="switchTab('dashboard')"
+      >
+        Tableau de bord
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        data-tab="effectifs"
+        onclick="switchTab('effectifs')"
+      >
+        Effectifs &amp; Présences
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        data-tab="finances"
+        onclick="switchTab('finances')"
+      >
+        Cotisations &amp; Reçus
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        data-tab="activites"
+        onclick="switchTab('activites')"
+      >
+        Activités &amp; Programme
+      </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        data-tab="parametres"
+        onclick="switchTab('parametres')"
+      >
+        Paramètres
+      </button>
     </nav>
 
     <main class="container">
-      <!-- BANDEAU CENTRALISÉ "À TRAITER MAINTENANT" -->
+      <!-- À TRAITER MAINTENANT -->
       <section class="card action-center no-print">
         <div class="card-header-row">
           <div>
             <h2>À traiter maintenant</h2>
-            <p class="muted small">Alertes J-14, rappels programme, 3 absences consécutives &amp; réunions/activités CU</p>
+            <p class="muted small">
+              Alertes J-14, rappels programme, 3 absences consécutives
+              &amp; réunions/activités CU
+            </p>
           </div>
-          <button type="button" class="btn btn-sm btn-secondary" onclick="toggleActionCenter()">Réduire / Ouvrir</button>
+
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            onclick="toggleActionCenter()"
+          >
+            Réduire / Ouvrir
+          </button>
         </div>
+
         <div id="smartRemindersBox" class="mt-2"></div>
       </section>
 
-      <!-- ONGLET 1 : TABLEAU DE BORD -->
+      <!-- TABLEAU DE BORD -->
       <section id="tab-dashboard" class="tab-panel active">
         <div class="stats-grid" id="dashboardStats"></div>
 
@@ -94,9 +246,13 @@
             <h3>Bilan par branche</h3>
             <div id="branchSummaryBox" class="mt-2"></div>
           </div>
+
           <div class="card">
             <h3>Suivi éducatif — 3 absences consécutives</h3>
-            <p class="muted small">Rencontre parents conseillée après 3 réunions ou activités manquées de suite.</p>
+            <p class="muted small">
+              Rencontre parents conseillée après 3 réunions ou activités
+              manquées de suite.
+            </p>
             <div id="absencesAlertsBox" class="mt-2"></div>
           </div>
         </div>
@@ -107,27 +263,59 @@
         </div>
       </section>
 
-      <!-- ONGLET 2 : EFFECTIFS & PRÉSENCES -->
+      <!-- EFFECTIFS & PRÉSENCES -->
       <section id="tab-effectifs" class="tab-panel">
         <div class="card no-print">
           <div class="card-header-row">
             <h3>Ajouter un jeune</h3>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="exportScoutsCsv()">Export CSV</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              onclick="exportScoutsCsv()"
+            >
+              Export CSV
+            </button>
           </div>
-          <form id="addScoutForm" onsubmit="addScout(event)" class="form-grid-4 mt-2">
+
+          <form
+            id="addScoutForm"
+            onsubmit="addScout(event)"
+            class="form-grid-4 mt-2"
+          >
             <input type="text" id="sc_prenom" placeholder="Prénom" required />
             <input type="text" id="sc_nom" placeholder="Nom" required />
-            <input type="text" id="sc_matricule" placeholder="Matricule (cotisation annuelle)" />
+            <input
+              type="text"
+              id="sc_matricule"
+              placeholder="Matricule (cotisation annuelle)"
+            />
+
             <select id="sc_branche" required>
-              <option value="Oisillon">Oisillon</option>
-              <option value="Meute">Meute</option>
-              <option value="Troupe">Troupe</option>
-              <option value="Chemin">Chemin</option>
-              <option value="Route">Route</option>
+              <option value="Oisillons">Oisillons</option>
+              <option value="Louveteau">Louveteau</option>
+              <option value="Troupier">Troupier</option>
+              <option value="Cheminot">Cheminot</option>
+              <option value="Routier">Routier</option>
             </select>
-            <input type="text" id="sc_parent_nom" placeholder="Nom parent / tuteur" />
-            <input type="tel" id="sc_parent_tel" placeholder="Tél WhatsApp parent (ex: 0700000000)" />
-            <input type="text" id="sc_allergies" placeholder="Allergies / santé (optionnel)" />
+
+            <input
+              type="text"
+              id="sc_parent_nom"
+              placeholder="Nom parent / tuteur"
+            />
+
+            <input
+              type="tel"
+              id="sc_parent_tel"
+              placeholder="Tél WhatsApp parent (ex: 0700000000)"
+            />
+
+            <input
+              type="text"
+              id="sc_allergies"
+              placeholder="Allergies / santé (optionnel)"
+            />
+
             <button type="submit" class="btn btn-primary">Ajouter</button>
           </form>
         </div>
@@ -135,48 +323,87 @@
         <div class="card mt-3">
           <div class="card-header-row no-print">
             <h3>Pointer une séance / réunion / activité</h3>
+
             <div class="inline-controls">
               <input type="date" id="presenceDateInput" />
-              <select id="presenceBranchFilter" onchange="renderEffectifsAndPresences()">
+
+              <select
+                id="presenceBranchFilter"
+                onchange="renderEffectifsAndPresences()"
+              >
                 <option value="Toutes">Toutes branches</option>
-                <option value="Oisillon">Oisillon</option>
-                <option value="Meute">Meute</option>
-                <option value="Troupe">Troupe</option>
-                <option value="Chemin">Chemin</option>
-                <option value="Route">Route</option>
+                <option value="Oisillons">Oisillons</option>
+                <option value="Louveteau">Louveteau</option>
+                <option value="Troupier">Troupier</option>
+                <option value="Cheminot">Cheminot</option>
+                <option value="Routier">Routier</option>
               </select>
             </div>
           </div>
+
           <div id="scoutsListBox" class="mt-2"></div>
         </div>
       </section>
 
-      <!-- ONGLET 3 : COTISATIONS & REÇUS -->
+      <!-- COTISATIONS & REÇUS -->
       <section id="tab-finances" class="tab-panel">
         <div class="card no-print">
           <div class="card-header-row">
             <h3>Suivi des cotisations (Jeunes &amp; Chefs d'Unité)</h3>
+
             <div class="inline-controls">
-              <select id="cotTargetGroupSelect" onchange="renderCotisationsSuivi()">
+              <select
+                id="cotTargetGroupSelect"
+                onchange="renderCotisationsSuivi()"
+              >
                 <option value="all">Jeunes &amp; Chefs d'Unité</option>
                 <option value="scout">Jeunes uniquement</option>
                 <option value="chef">Chefs d'Unité uniquement</option>
               </select>
-              <select id="cotTypeSelect" onchange="renderCotisationsSuivi()">
-                <option value="annuelle">Cotisation annuelle (avec matricule)</option>
+
+              <select
+                id="cotTypeSelect"
+                onchange="renderCotisationsSuivi()"
+              >
+                <option value="annuelle">
+                  Cotisation annuelle (avec matricule)
+                </option>
                 <option value="mensuelle">Cotisation mensuelle</option>
               </select>
+
               <label class="checkbox-inline">
-                <input type="checkbox" id="includeWaveInReminder" checked onchange="renderCotisationsSuivi()" />
+                <input
+                  type="checkbox"
+                  id="includeWaveInReminder"
+                  checked
+                  onchange="renderCotisationsSuivi()"
+                />
                 Inclure lien Wave Business
               </label>
             </div>
           </div>
 
           <div class="inline-controls mt-2">
-            <input type="text" id="newCustomCotLabel" placeholder="Nouvelle cotisation ponctuelle (ex: Camp Pâques)" />
-            <input type="number" id="newCustomCotAmount" placeholder="Montant (FCFA)" min="0" />
-            <button type="button" class="btn btn-sm btn-primary" onclick="addCustomCotisation()">Créer cotisation</button>
+            <input
+              type="text"
+              id="newCustomCotLabel"
+              placeholder="Nouvelle cotisation ponctuelle (ex: Camp Pâques)"
+            />
+
+            <input
+              type="number"
+              id="newCustomCotAmount"
+              placeholder="Montant (FCFA)"
+              min="0"
+            />
+
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              onclick="addCustomCotisation()"
+            >
+              Créer cotisation
+            </button>
           </div>
 
           <div id="cotisationsTableBox" class="mt-3"></div>
@@ -184,19 +411,65 @@
 
         <div class="card mt-3">
           <h3>Émission de reçu officiel</h3>
-          <form id="receiptForm" onsubmit="generateReceipt(event)" class="form-grid-4 mt-2 no-print">
+
+          <form
+            id="receiptForm"
+            onsubmit="generateReceipt(event)"
+            class="form-grid-4 mt-2 no-print"
+          >
             <select id="rc_scout" onchange="prefillReceiptFromScout()">
               <option value="">-- Sélectionner un jeune (optionnel) --</option>
             </select>
-            <input type="text" id="rc_numero" placeholder="N° Reçu (auto si vide)" />
+
+            <input
+              type="text"
+              id="rc_numero"
+              placeholder="N° Reçu (auto si vide)"
+            />
+
             <input type="date" id="rc_date" required />
-            <input type="number" id="rc_montant" placeholder="Montant FCFA" min="0" required />
-            <input type="text" id="rc_motif" placeholder="Motif (ex: Cotisation annuelle)" required />
-            <input type="text" id="rc_detail" placeholder="Bénéficiaire / Matricule / Détail" />
-            <button type="submit" class="btn btn-primary">Générer le reçu</button>
+
+            <input
+              type="number"
+              id="rc_montant"
+              placeholder="Montant FCFA"
+              min="0"
+              required
+            />
+
+            <input
+              type="text"
+              id="rc_motif"
+              placeholder="Motif (ex: Cotisation annuelle)"
+              required
+            />
+
+            <input
+              type="text"
+              id="rc_detail"
+              placeholder="Bénéficiaire / Matricule / Détail"
+            />
+
+            <button type="submit" class="btn btn-primary">
+              Générer le reçu
+            </button>
+
             <div class="actions-row">
-              <button type="button" class="btn btn-secondary" onclick="printReceiptCard()">Imprimer</button>
-              <button type="button" class="btn btn-success" onclick="sendCurrentReceiptByWhatsApp()">WhatsApp</button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                onclick="printReceiptCard()"
+              >
+                Imprimer
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-success"
+                onclick="sendCurrentReceiptByWhatsApp()"
+              >
+                WhatsApp
+              </button>
             </div>
           </form>
 
@@ -206,48 +479,98 @@
         </div>
       </section>
 
-      <!-- ONGLET 4 : ACTIVITÉS, RAPPELS CU & PROGRAMME -->
+      <!-- ACTIVITÉS & PROGRAMME -->
       <section id="tab-activites" class="tab-panel">
         <div class="grid-2">
           <div class="card no-print">
             <h3>Nouvelle activité / réunion</h3>
-            <form id="addActivityForm" onsubmit="addActivity(event)" class="form-stack mt-2">
-              <input type="text" id="act_titre" placeholder="Titre (ex: Réunion maîtrise CU, Sortie forêt)" required />
+
+            <form
+              id="addActivityForm"
+              onsubmit="addActivity(event)"
+              class="form-stack mt-2"
+            >
+              <input
+                type="text"
+                id="act_titre"
+                placeholder="Titre (ex: Réunion maîtrise CU, Sortie forêt)"
+                required
+              />
+
               <input type="date" id="act_date" required />
-              <input type="date" id="act_deadline" title="Date limite de paiement / participation" />
+
+              <input
+                type="date"
+                id="act_deadline"
+                title="Date limite de paiement / participation"
+              />
+
               <select id="act_branche">
                 <option value="Toutes">Toutes branches</option>
-                <option value="Oisillon">Oisillon</option>
-                <option value="Meute">Meute</option>
-                <option value="Troupe">Troupe</option>
-                <option value="Chemin">Chemin</option>
-                <option value="Route">Route</option>
+                <option value="Oisillons">Oisillons</option>
+                <option value="Louveteau">Louveteau</option>
+                <option value="Troupier">Troupier</option>
+                <option value="Cheminot">Cheminot</option>
+                <option value="Routier">Routier</option>
               </select>
+
               <input type="text" id="act_lieu" placeholder="Lieu" />
+
               <label class="checkbox-inline">
                 <input type="checkbox" id="act_for_cu" checked />
                 Concerne / nécessite rappel aux Chefs d'Unité (CU)
               </label>
-              <button type="submit" class="btn btn-primary">Enregistrer l'activité</button>
+
+              <button type="submit" class="btn btn-primary">
+                Enregistrer l'activité
+              </button>
             </form>
           </div>
 
           <div class="card no-print">
             <h3>Programme manuel (rappels info parents)</h3>
-            <form id="addProgramForm" onsubmit="addProgramEvent(event)" class="form-stack mt-2">
-              <input type="text" id="prog_titre" placeholder="Événement du programme (ex: Camp de Noël)" required />
+
+            <form
+              id="addProgramForm"
+              onsubmit="addProgramEvent(event)"
+              class="form-stack mt-2"
+            >
+              <input
+                type="text"
+                id="prog_titre"
+                placeholder="Événement du programme (ex: Camp de Noël)"
+                required
+              />
+
               <input type="date" id="prog_date" required />
-              <input type="number" id="prog_rappel_jours" value="7" min="1" max="30" placeholder="Rappeler X jours avant" />
+
+              <input
+                type="number"
+                id="prog_rappel_jours"
+                value="7"
+                min="1"
+                max="30"
+                placeholder="Rappeler X jours avant"
+              />
+
               <select id="prog_branche">
                 <option value="Toutes">Toutes branches</option>
-                <option value="Oisillon">Oisillon</option>
-                <option value="Meute">Meute</option>
-                <option value="Troupe">Troupe</option>
-                <option value="Chemin">Chemin</option>
-                <option value="Route">Route</option>
+                <option value="Oisillons">Oisillons</option>
+                <option value="Louveteau">Louveteau</option>
+                <option value="Troupier">Troupier</option>
+                <option value="Cheminot">Cheminot</option>
+                <option value="Routier">Routier</option>
               </select>
-              <input type="text" id="prog_details" placeholder="Infos clés pour les parents" />
-              <button type="submit" class="btn btn-primary">Ajouter au programme</button>
+
+              <input
+                type="text"
+                id="prog_details"
+                placeholder="Infos clés pour les parents"
+              />
+
+              <button type="submit" class="btn btn-primary">
+                Ajouter au programme
+              </button>
             </form>
           </div>
         </div>
@@ -263,31 +586,78 @@
         </div>
       </section>
 
-      <!-- ONGLET 5 : PARAMÈTRES -->
+      <!-- PARAMÈTRES -->
       <section id="tab-parametres" class="tab-panel no-print">
         <div class="card">
           <h3>Paramètres généraux &amp; échéances</h3>
-          <form id="settingsForm" onsubmit="saveSettings(event)" class="form-grid-3 mt-2">
-            <input type="text" id="set_cg_nom" placeholder="Nom du Chef de Groupe" />
-            <input type="tel" id="set_cg_tel" placeholder="Téléphone CG" />
-            <input type="url" id="set_wave_url" placeholder="Lien Wave Business (https://...)" />
-            <input type="number" id="set_cot_annuelle" placeholder="Cotisation annuelle jeune (FCFA)" min="0" />
-            <input type="number" id="set_cot_mensuelle" placeholder="Cotisation mensuelle (FCFA)" min="0" />
-            <input type="date" id="set_cot_nationale_deadline" title="Date limite cotisation nationale" />
-            <button type="submit" class="btn btn-primary">Enregistrer les paramètres</button>
+
+          <form
+            id="settingsForm"
+            onsubmit="saveSettings(event)"
+            class="form-grid-3 mt-2"
+          >
+            <input
+              type="text"
+              id="set_cg_nom"
+              placeholder="Nom du Chef de Groupe"
+            />
+
+            <input
+              type="tel"
+              id="set_cg_tel"
+              placeholder="Téléphone CG"
+            />
+
+            <input
+              type="url"
+              id="set_wave_url"
+              placeholder="Lien Wave Business (https://...)"
+            />
+
+            <input
+              type="number"
+              id="set_cot_annuelle"
+              placeholder="Cotisation annuelle jeune (FCFA)"
+              min="0"
+            />
+
+            <input
+              type="number"
+              id="set_cot_mensuelle"
+              placeholder="Cotisation mensuelle (FCFA)"
+              min="0"
+            />
+
+            <input
+              type="date"
+              id="set_cot_nationale_deadline"
+              title="Date limite cotisation nationale"
+            />
+
+            <button type="submit" class="btn btn-primary">
+              Enregistrer les paramètres
+            </button>
           </form>
 
           <hr class="mt-3" />
+
           <h4 class="mt-2">Restaurer une sauvegarde JSON</h4>
-          <input type="file" id="restoreJsonInput" accept="application/json" onchange="restoreBackupJson(event)" class="mt-2" />
+
+          <input
+            type="file"
+            id="restoreJsonInput"
+            accept="application/json"
+            onchange="restoreBackupJson(event)"
+            class="mt-2"
+          />
         </div>
       </section>
     </main>
   </div>
 
-  <!-- ZONE D'IMPRESSION DÉDIÉE -->
+  <!-- ZONE D'IMPRESSION -->
   <div id="printOverlay" class="print-only"></div>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=3"></script>
 </body>
 </html>

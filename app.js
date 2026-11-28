@@ -11,6 +11,8 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const firestoreDb = firebase.firestore();
+const firebaseAuth = firebase.auth();
+let firestoreUnsubscribe = null;
 firestoreDb.settings({
   experimentalForceLongPolling: true,
   useFetchStreams: false
@@ -18,7 +20,10 @@ firestoreDb.settings({
 const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
 const BACKUP_KEY = "obion_erp_backup_v1";
+const BACKUP_USER_KEY = "obion_erp_backup_uid_v1";
 const SESSION_KEY = "obion_erp_session_v1";
+const IDLE_LIMIT_MS = 15 * 60 * 1000;
+let idleTimer = null;
 const BRANCHES = ["Oisillon", "Meute", "Troupe", "Chemin", "Route"];
 
 function cloneSafe(obj) {
@@ -150,6 +155,7 @@ async function persistDb(actionTitle = "Mise à jour", actionDetail = "") {
   db = normalizeDbStructure(db);
   try {
     localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    if (currentUser && currentUser.uid) localStorage.setItem(BACKUP_USER_KEY, currentUser.uid);
   } catch (e) {}
 
   setSyncBadge("Synchronisation...", "badge-warning");
@@ -158,6 +164,7 @@ async function persistDb(actionTitle = "Mise à jour", actionDetail = "") {
     const finalDoc = snap.exists ? mergeDbStates(snap.data(), db) : db;
     db = finalDoc;
     localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    if (currentUser && currentUser.uid) localStorage.setItem(BACKUP_USER_KEY, currentUser.uid);
     await docRefObion.set(finalDoc, { merge: true });
     setSyncBadge("Synchronisé", "badge-success");
   } catch (err) {
@@ -177,6 +184,7 @@ async function persistDb(actionTitle = "Mise à jour", actionDetail = "") {
     db.messageLogs = db.messageLogs.slice(0, 500);
     try {
       localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    if (currentUser && currentUser.uid) localStorage.setItem(BACKUP_USER_KEY, currentUser.uid);
     } catch (e) {}
   }
 }
@@ -184,7 +192,8 @@ async function persistDb(actionTitle = "Mise à jour", actionDetail = "") {
 async function initAppData() {
   let localFallback = null;
   try {
-    const rawLocal = localStorage.getItem(BACKUP_KEY);
+    const backupUid = localStorage.getItem(BACKUP_USER_KEY);
+    const rawLocal = currentUser && backupUid === currentUser.uid ? localStorage.getItem(BACKUP_KEY) : null;
     if (rawLocal) localFallback = JSON.parse(rawLocal);
   } catch (e) {}
 
@@ -197,6 +206,7 @@ async function initAppData() {
     if (snap.exists) {
       db = localFallback ? mergeDbStates(snap.data(), localFallback) : normalizeDbStructure(snap.data());
       localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    if (currentUser && currentUser.uid) localStorage.setItem(BACKUP_USER_KEY, currentUser.uid);
       setSyncBadge("Synchronisé", "badge-success");
     } else {
       await docRefObion.set(db);
@@ -206,11 +216,13 @@ async function initAppData() {
     setSyncBadge("Hors ligne (local)", "badge-warning");
   }
 
-  docRefObion.onSnapshot((doc) => {
+  if (firestoreUnsubscribe) firestoreUnsubscribe();
+  firestoreUnsubscribe = docRefObion.onSnapshot((doc) => {
     if (!doc.exists) return;
     db = normalizeDbStructure(doc.data());
     try {
       localStorage.setItem(BACKUP_KEY, JSON.stringify(db));
+    if (currentUser && currentUser.uid) localStorage.setItem(BACKUP_USER_KEY, currentUser.uid);
     } catch (e) {}
     setSyncBadge("Synchronisé", "badge-success");
     if (currentUser) renderAll();
@@ -234,56 +246,74 @@ function toggleChefSelect() {
   if (grp) grp.style.display = role === "cu" ? "block" : "none";
 }
 
-function handleLogin(event) {
+async function handleLogin(event) {
   event.preventDefault();
-  const role = document.getElementById("roleSelect").value;
-  const pin = String(document.getElementById("pinInput").value || "").trim();
-  const pins = db.settings.pins || {};
-
-  if (role === "cg" && pin !== String(pins.cg || "1111")) {
-    alert("Code PIN Chef de Groupe incorrect.");
-    return;
-  }
-  if (role === "financier" && pin !== String(pins.financier || "2222")) {
-    alert("Code PIN Financier incorrect.");
-    return;
-  }
-  if (role === "cu") {
-    if (pin !== String(pins.cu || "3333")) {
-      alert("Code PIN Chef d'Unité incorrect.");
-      return;
-    }
-    const chefId = document.getElementById("chefLoginSelect").value;
-    const chef = (db.chefs || []).find((c) => c.id === chefId) || db.chefs[0];
-    currentUser = {
-      role: "cu",
-      chefId: chef ? chef.id : "",
-      chefNom: chef ? chef.nom : "Chef d'Unité",
-      branche: chef ? chef.branche : "Toutes"
-    };
-  } else {
-    currentUser = {
-      role,
-      chefNom: role === "cg" ? (db.settings.cg_nom || "Chef de Groupe") : "Financier",
-      branche: "Toutes"
-    };
-  }
+  const errorBox = document.getElementById("loginError");
+  const email = String(document.getElementById("emailInput").value || "").trim();
+  const password = String(document.getElementById("passwordInput").value || "");
+  const submit = document.querySelector('#loginForm button[type="submit"]');
+  if (errorBox) errorBox.textContent = "";
+  if (submit) submit.disabled = true;
 
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-  } catch (e) {}
+    const credential = await firebaseAuth.signInWithEmailAndPassword(email, password);
+    const user = credential.user;
+    const accessSnap = await firestoreDb.collection("access_users").doc(user.uid).get();
+    if (!accessSnap.exists || accessSnap.data().active !== true) {
+      await firebaseAuth.signOut();
+      throw new Error("Compte non autorisé. Demande au Chef de Groupe de vérifier ton accès.");
+    }
+    const access = accessSnap.data();
+    const role = String(access.role || "");
+    if (!["cg", "financier", "cu"].includes(role)) {
+      await firebaseAuth.signOut();
+      throw new Error("Rôle non reconnu. Contacte le Chef de Groupe.");
+    }
+    currentUser = {
+      uid: user.uid,
+      role,
+      chefId: access.chefId || "",
+      chefNom: access.chefNom || user.email || "Responsable",
+      branche: access.branche || "Toutes"
+    };
+    await initAppData();
+    document.getElementById("passwordInput").value = "";
+    showAppShell();
+    resetIdleTimer();
+  } catch (err) {
+    if (errorBox) errorBox.textContent = err.message || "Connexion impossible. Vérifie tes identifiants.";
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
 
-  showAppShell();
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer);
+  if (!currentUser) return;
+  idleTimer = setTimeout(() => {
+    alert("Session terminée après 15 minutes d’inactivité. Reconnecte-toi.");
+    logout();
+  }, IDLE_LIMIT_MS);
 }
 
 function logout() {
   currentUser = null;
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+  if (firestoreUnsubscribe) {
+    firestoreUnsubscribe();
+    firestoreUnsubscribe = null;
+  }
   try {
     sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(BACKUP_KEY);
+    localStorage.removeItem(BACKUP_USER_KEY);
   } catch (e) {}
+  firebaseAuth.signOut().catch(() => {});
   document.getElementById("appShell").style.display = "none";
   document.getElementById("loginScreen").style.display = "grid";
-  document.getElementById("pinInput").value = "";
+  const password = document.getElementById("passwordInput");
+  if (password) password.value = "";
 }
 
 function showAppShell() {
@@ -353,9 +383,9 @@ function findRecentMessageLog(dedupKey, maxDays = 7) {
 
 function getMessageStatusBadge(dedupKey) {
   const recent = findRecentMessageLog(dedupKey, 7);
-  if (!recent) return `<span class="badge badge-info">Non envoyé cette sem.</span>`;
+  if (!recent) return `<span class="badge badge-info">À préparer</span>`;
   const dayStr = String(recent.sentAt || "").slice(0, 10);
-  return `<span class="badge badge-success" title="Envoyé le ${escapeHtml(dayStr)}">✓ Envoyé (${escapeHtml(dayStr)})</span>`;
+  return `<span class="badge badge-warning" title="WhatsApp a été ouvert ; envoi non confirmé">WhatsApp ouvert (${escapeHtml(dayStr)})</span>`;
 }
 
 function openWhatsAppUrl(phoneRaw, messageText) {
@@ -377,7 +407,7 @@ async function sendTrackedWhatsAppMessage({
   if (existing) {
     const sentDate = String(existing.sentAt || "").slice(0, 10);
     const ok = confirm(
-      `Un message a déjà été envoyé pour "${recipientLabel || category}" cette semaine (${sentDate}).\n\nVoulez-vous vraiment renvoyer ce message ?`
+      `WhatsApp a déjà été ouvert pour "${recipientLabel || category}" cette semaine (${sentDate}).\n\nVeux-tu rouvrir la conversation ?`
     );
     if (!ok) return false;
   }
@@ -393,7 +423,7 @@ async function sendTrackedWhatsAppMessage({
     sentAt: new Date().toISOString(),
     author: currentUser ? (currentUser.chefNom || currentUser.role) : "Système"
   });
-  await persistDb("Message WhatsApp envoyé", `${category} — ${recipientLabel}`);
+  await persistDb("Conversation WhatsApp ouverte (envoi non confirmé)", `${category} — ${recipientLabel}`);
   renderAll();
   return true;
 }
@@ -407,10 +437,8 @@ async function addScout(event) {
     nom: document.getElementById("sc_nom").value.trim(),
     matricule: document.getElementById("sc_matricule").value.trim(),
     branche: document.getElementById("sc_branche").value,
-    naissance: document.getElementById("sc_naissance")?.value || "",
     parent_nom: document.getElementById("sc_parent_nom").value.trim(),
     parent_tel: document.getElementById("sc_parent_tel").value.trim(),
-    parent_tel2: document.getElementById("sc_parent_tel2")?.value.trim() || "",
     allergies: document.getElementById("sc_allergies").value.trim()
   };
   db.scouts.push(scout);
@@ -466,7 +494,7 @@ function sendParentMeetingInvitation(scoutId) {
   ].join("\n");
 
   sendTrackedWhatsAppMessage({
-    phoneRaw: scout.parent_tel || scout.parent_tel2,
+    phoneRaw: scout.parent_tel,
     messageText: msg,
     dedupKey: `rencontre_parents__${scout.id}`,
     category: "Proposition rencontre parents (3 absences)",
@@ -486,17 +514,12 @@ function renderEffectifsAndPresences() {
   if (!box) return;
   const dateStr = document.getElementById("presenceDateInput")?.value || new Date().toISOString().slice(0, 10);
   const branchFilter = document.getElementById("presenceBranchFilter")?.value || "Toutes";
-  const query = String(document.getElementById("scoutSearchInput")?.value || "").trim().toLowerCase();
 
   const list = (db.scouts || []).filter((s) => {
     if (currentUser && currentUser.role === "cu" && currentUser.branche && currentUser.branche !== "Toutes") {
       if (s.branche !== currentUser.branche) return false;
     }
     if (branchFilter !== "Toutes" && s.branche !== branchFilter) return false;
-    if (query) {
-      const hay = `${s.prenom || ""} ${s.nom || ""} ${s.matricule || ""} ${s.parent_nom || ""}`.toLowerCase();
-      if (!hay.includes(query)) return false;
-    }
     return true;
   });
 
@@ -513,7 +536,6 @@ function renderEffectifsAndPresences() {
             <th>Jeune</th>
             <th>Branche</th>
             <th>Matricule</th>
-            <th>Parent / Contact</th>
             <th>Absence suite</th>
             <th>Statut (${escapeHtml(dateStr)})</th>
             <th>Actions</th>
@@ -528,15 +550,10 @@ function renderEffectifsAndPresences() {
               <tr>
                 <td>
                   <strong>${escapeHtml(s.prenom)} ${escapeHtml(s.nom)}</strong>
-                  ${s.naissance ? `<br><span class="small muted">Né(e) : ${escapeHtml(s.naissance)}</span>` : ""}
                   ${s.allergies ? `<br><span class="small muted">Santé : ${escapeHtml(s.allergies)}</span>` : ""}
                 </td>
                 <td>${escapeHtml(s.branche)}</td>
                 <td>${escapeHtml(s.matricule || "-")}</td>
-                <td>
-                  <span class="small">${escapeHtml(s.parent_nom || "-")}</span>
-                  ${s.parent_tel ? `<br><span class="small muted">${escapeHtml(s.parent_tel)}</span>` : ""}
-                </td>
                 <td>
                   ${streak >= 3 && !meetingDone
                     ? `<span class="badge badge-warning">${streak} abs. de suite — Rencontre parents</span>`
@@ -595,19 +612,29 @@ function getCotisationMeta(cotType) {
 async function toggleCotisationPayment(memberId, kind, cotId) {
   const key = `${kind}__${memberId}__${cotId}`;
   const isPaid = Boolean(db.cotisationPayments[key]);
-  db.cotisationPayments[key] = !isPaid;
-
   const meta = getCotisationMeta(cotId);
-  if (!isPaid && meta.montant > 0) {
-    db.finances.unshift({
-      id: uid("fin"),
-      date: new Date().toISOString().slice(0, 10),
-      type: "recette",
-      libelle: `${meta.label} (${memberId})`,
-      montant: meta.montant
-    });
+  if (isPaid) {
+    const ok = confirm("Cette cotisation est déjà marquée payée. Pour corriger le statut, une écriture d'annulation sera ajoutée aux finances. Continuer ?");
+    if (!ok) return;
+    db.cotisationPayments[key] = false;
+    if (meta.montant > 0) {
+      db.finances.unshift({
+        id: uid("fin"), date: new Date().toISOString().slice(0, 10), type: "depense",
+        libelle: `Annulation / correction — ${meta.label} (${memberId})`, montant: meta.montant,
+        correction: true, referencePaiement: key
+      });
+    }
+    await persistDb("Correction cotisation (écriture compensatoire)", `${key} -> Non payée`);
+  } else {
+    db.cotisationPayments[key] = true;
+    if (meta.montant > 0) {
+      db.finances.unshift({
+        id: uid("fin"), date: new Date().toISOString().slice(0, 10), type: "recette",
+        libelle: `${meta.label} (${memberId})`, montant: meta.montant, referencePaiement: key
+      });
+    }
+    await persistDb("Paiement cotisation", `${key} -> Payée`);
   }
-  await persistDb("Paiement cotisation", `${key} -> ${!isPaid ? "Payée" : "Non payée"}`);
   renderAll();
 }
 
@@ -636,7 +663,7 @@ function sendCotisationReminderWhatsApp(memberId, kind, cotId) {
     nom = `${scout.prenom} ${scout.nom}`;
     branche = scout.branche || "-";
     matriculeTxt = cotId === "annuelle" && scout.matricule ? ` (Matricule : *${scout.matricule}*)` : "";
-    phone = scout.parent_tel || scout.parent_tel2 || "";
+    phone = scout.parent_tel || "";
     salutation = scout.parent_nom ? `Bonjour ${scout.parent_nom}` : "Chers parents";
   }
 
@@ -754,53 +781,6 @@ function renderCotisationsSuivi() {
   `;
 }
 
-// --- TRÉSORERIE (RECETTES & DÉPENSES) ---
-async function addFinanceEntry(event) {
-  event.preventDefault();
-  const type = document.getElementById("fin_type").value;
-  const libelle = document.getElementById("fin_libelle").value.trim();
-  const montant = Number(document.getElementById("fin_montant").value || 0);
-  const date = document.getElementById("fin_date").value || new Date().toISOString().slice(0, 10);
-  if (!libelle || montant <= 0) return;
-
-  db.finances.unshift({
-    id: uid("fin"),
-    date,
-    type,
-    libelle,
-    montant
-  });
-  event.target.reset();
-  document.getElementById("fin_date").value = new Date().toISOString().slice(0, 10);
-  await persistDb("Écriture comptable", `${type.toUpperCase()} : ${libelle} (${formatMoney(montant)})`);
-  renderAll();
-}
-
-function renderFinanceSummary() {
-  const box = document.getElementById("financeSummaryBox");
-  if (!box) return;
-  const recettes = (db.finances || []).filter((f) => f.type === "recette").reduce((s, f) => s + Number(f.montant || 0), 0);
-  const depenses = (db.finances || []).filter((f) => f.type === "depense").reduce((s, f) => s + Number(f.montant || 0), 0);
-  const solde = recettes - depenses;
-  const recent = (db.finances || []).slice(0, 8);
-
-  box.innerHTML = `
-    <div class="stats-grid">
-      <div class="stat-box"><div class="muted small">Total Recettes</div><div class="stat-value">${escapeHtml(formatMoney(recettes))}</div></div>
-      <div class="stat-box"><div class="muted small">Total Dépenses</div><div class="stat-value">${escapeHtml(formatMoney(depenses))}</div></div>
-      <div class="stat-box"><div class="muted small">Solde disponible</div><div class="stat-value">${escapeHtml(formatMoney(solde))}</div></div>
-    </div>
-    <div class="mt-2">
-      ${recent.map((f) => `
-        <div class="small" style="padding:5px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
-          <span><strong>${f.type === "depense" ? "−" : "+"} ${escapeHtml(f.libelle)}</strong> <span class="muted">(${escapeHtml(f.date || "")})</span></span>
-          <strong>${escapeHtml(formatMoney(f.montant))}</strong>
-        </div>
-      `).join("") || `<p class="muted small">Aucune opération enregistrée.</p>`}
-    </div>
-  `;
-}
-
 // --- REÇUS + IMPRESSION FIABLE + ENVOI WHATSAPP ---
 function populateReceiptScoutSelect() {
   const sel = document.getElementById("rc_scout");
@@ -878,7 +858,7 @@ function sendCurrentReceiptByWhatsApp() {
 
   const msg = `🧾 *REÇU OFFICIEL — GROUPE OBION*\n\n${body}\n\n*${cgNom}* — Groupe OBION`;
   sendTrackedWhatsAppMessage({
-    phoneRaw: scout ? (scout.parent_tel || scout.parent_tel2) : "",
+    phoneRaw: scout ? scout.parent_tel : "",
     messageText: msg,
     dedupKey: `recu_wa__${scoutId || "libre"}__${Date.now().toString().slice(-5)}`,
     category: "Envoi reçu WhatsApp",
@@ -959,26 +939,80 @@ function sendProgramInfoToParents(eventId) {
   const ev = (db.programmeEvents || []).find((e) => e.id === eventId);
   if (!ev) return;
   const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
-  const targetScout = (db.scouts || []).find((s) => !ev.branche || ev.branche === "Toutes" || s.branche === ev.branche);
-
   const msg = [
-    `Bonjour chers parents (*Groupe OBION*),`,
-    "",
+    `Bonjour chers parents (*Groupe OBION*),`, "",
     `Information au programme : *${ev.titre}*`,
     `📅 Date : *${ev.date}*`,
     ev.branche && ev.branche !== "Toutes" ? `Branche : *${ev.branche}*` : "",
     ev.details ? `\nℹ️ ${ev.details}` : "",
-    "\nMerci pour votre accompagnement.",
-    `*${cgNom}* — Groupe OBION`
+    "\nMerci pour votre accompagnement.", `*${cgNom}* — Groupe OBION`
   ].filter(Boolean).join("\n");
+  const targets = (db.scouts || []).filter((s) =>
+    (!ev.branche || ev.branche === "Toutes" || s.branche === ev.branche) && String(s.parent_tel || "").trim()
+  );
+  showParentRecipientLinks(`Information programme : ${ev.titre}`, msg, targets, `Programme • ${ev.titre}`);
+  switchTab("parents");
+}
 
-  sendTrackedWhatsAppMessage({
-    phoneRaw: targetScout ? (targetScout.parent_tel || targetScout.parent_tel2) : "",
-    messageText: msg,
-    dedupKey: `prog_info__${ev.id}`,
-    category: "Info programme parents",
-    recipientLabel: `${ev.titre} (${ev.branche})`
+function prepareParentBroadcast(event) {
+  event.preventDefault();
+  const title = document.getElementById("parent_msg_titre").value.trim();
+  const branch = document.getElementById("parent_msg_branche").value || "Toutes";
+  const date = document.getElementById("parent_msg_date").value;
+  const content = document.getElementById("parent_msg_contenu").value.trim();
+  const cgNom = db.settings.cg_nom || "Chef de Groupe Obion";
+  const msg = [
+    "Bonjour chers parents (*Groupe OBION*),", "",
+    `📌 *${title}*`, date ? `📅 Date : *${date}*` : "",
+    branch !== "Toutes" ? `Branche : *${branch}*` : "",
+    "", content, "", "Merci pour votre accompagnement.", `*${cgNom}* — Groupe OBION`
+  ].filter(Boolean).join("\n");
+  const targets = (db.scouts || []).filter((s) =>
+    (branch === "Toutes" || s.branche === branch) && String(s.parent_tel || "").trim()
+  );
+  showParentRecipientLinks(title, msg, targets, `Info parents • ${title}`);
+  switchTab("parents");
+}
+
+function showParentRecipientLinks(title, messageText, scouts, category) {
+  const box = document.getElementById("parentMessageRecipients");
+  const count = document.getElementById("parentMessageCount");
+  if (!box) return;
+  const unique = new Map();
+  scouts.forEach((s) => {
+    const phone = String(s.parent_tel || "").trim();
+    if (!phone) return;
+    const key = normalizeWaPhone(phone) || phone;
+    if (!unique.has(key)) unique.set(key, { phone, parent: s.parent_nom || "Parent / tuteur", youth: `${s.prenom || ""} ${s.nom || ""}`.trim(), branch: s.branche || "-" });
   });
+  const recipients = Array.from(unique.values());
+  if (count) count.textContent = `${recipients.length} conversation(s)`;
+  if (!recipients.length) {
+    box.innerHTML = `<div class="empty-state"><strong>Aucun numéro parent disponible</strong><p>Ajoute d’abord le téléphone WhatsApp des parents dans la fiche des jeunes.</p></div>`;
+    return;
+  }
+  box.innerHTML = `<p class="muted small">${escapeHtml(title)} — ${recipients.length} numéro(s) unique(s). Chaque conversation s’ouvre séparément ; l’envoi reste manuel.</p>` + recipients.map((r, i) => `
+    <div class="recipient-row">
+      <div class="recipient-index">${i + 1}</div>
+      <div class="recipient-info"><strong>${escapeHtml(r.parent)}</strong><span>${escapeHtml(r.youth)} • ${escapeHtml(r.branch)} • ${escapeHtml(r.phone)}</span></div>
+      <button type="button" class="btn btn-sm btn-whatsapp" data-phone="${escapeHtml(r.phone)}" data-message="${escapeHtml(messageText)}" data-category="${escapeHtml(category)}" data-recipient="${escapeHtml(r.parent + ' — ' + r.youth)}" onclick="openPreparedParentWhatsApp(this)">Ouvrir WhatsApp</button>
+    </div>`).join("");
+}
+
+async function openPreparedParentWhatsApp(button) {
+  const phone = button.dataset.phone || "";
+  const message = button.dataset.message || "";
+  const category = button.dataset.category || "Info parents";
+  const recipient = button.dataset.recipient || "Parent";
+  openWhatsAppUrl(phone, message);
+  db.messageLogs.unshift({
+    id: uid("msg"), dedupKey: `parent_manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    category, recipientLabel: recipient, weekKey: getIsoWeekKey(), sentAt: new Date().toISOString(),
+    status: "whatsapp_ouvert_non_confirme", author: currentUser ? (currentUser.chefNom || currentUser.role) : "Système"
+  });
+  await persistDb("WhatsApp ouvert (envoi non confirmé)", `${category} — ${recipient}`);
+  button.textContent = "WhatsApp ouvert";
+  button.disabled = true;
 }
 
 function renderActivitiesAndProgram() {
@@ -1136,16 +1170,16 @@ function renderDashboard() {
 
   const totalScouts = (db.scouts || []).length;
   const totalChefs = (db.chefs || []).length;
-  const recettes = (db.finances || []).filter((f) => f.type === "recette").reduce((acc, f) => acc + Number(f.montant || 0), 0);
-  const depenses = (db.finances || []).filter((f) => f.type === "depense").reduce((acc, f) => acc + Number(f.montant || 0), 0);
-  const solde = recettes - depenses;
+  const totalRecettes = (db.finances || [])
+    .filter((f) => f.type === "recette")
+    .reduce((acc, f) => acc + Number(f.montant || 0), 0);
   const alerts3Abs = (db.scouts || []).filter((s) => getConsecutiveAbsences(s.id) >= 3 && !db.parentMeetingsDone[s.id]);
 
   if (statsBox) {
     statsBox.innerHTML = `
       <div class="stat-box"><div class="muted small">Jeunes inscrits</div><div class="stat-value">${totalScouts}</div></div>
       <div class="stat-box"><div class="muted small">Chefs d'Unité</div><div class="stat-value">${totalChefs}</div></div>
-      <div class="stat-box"><div class="muted small">Solde caisse</div><div class="stat-value">${escapeHtml(formatMoney(solde))}</div></div>
+      <div class="stat-box"><div class="muted small">Encaissements enregistrés</div><div class="stat-value">${escapeHtml(formatMoney(totalRecettes))}</div></div>
       <div class="stat-box"><div class="muted small">Alertes 3 absences</div><div class="stat-value">${alerts3Abs.length}</div></div>
     `;
   }
@@ -1180,38 +1214,11 @@ function renderDashboard() {
     const items = (db.messageLogs || []).slice(0, 8);
     logsBox.innerHTML = items.length
       ? items.map((l) => `<div class="small" style="padding:5px 0; border-bottom:1px solid var(--border);"><strong>${escapeHtml(l.category)}</strong> — ${escapeHtml(l.recipientLabel || "")} <span class="muted">(${escapeHtml(String(l.sentAt || "").slice(0, 16).replace("T", " "))})</span></div>`).join("")
-      : `<p class="muted small">Aucune activité récente enregistrée.</p>`;
+      : `<p class="muted small">Aucune conversation WhatsApp ouverte récemment.</p>`;
   }
 }
 
-// --- CHEFS D'UNITÉ, PARAMÈTRES & EXPORTS ---
-async function addChef(event) {
-  event.preventDefault();
-  const chef = {
-    id: uid("chef"),
-    nom: document.getElementById("ch_nom").value.trim(),
-    branche: document.getElementById("ch_branche").value,
-    tel: document.getElementById("ch_tel").value.trim()
-  };
-  db.chefs.push(chef);
-  event.target.reset();
-  await persistDb("Ajout Chef d'Unité", `${chef.nom} (${chef.branche})`);
-  renderAll();
-}
-
-function renderChefsList() {
-  const box = document.getElementById("chefsListBox");
-  if (!box) return;
-  box.innerHTML = (db.chefs || []).map((c) => `
-    <div class="alert-item alert-info">
-      <div>
-        <strong>${escapeHtml(c.nom)}</strong> — <span class="small">${escapeHtml(c.branche || "Groupe")}</span>
-        ${c.tel ? `<br><span class="small muted">Tél : ${escapeHtml(c.tel)}</span>` : ""}
-      </div>
-    </div>
-  `).join("");
-}
-
+// --- PARAMÈTRES & EXPORTS ---
 function populateSettingsForm() {
   const s = db.settings || {};
   const setVal = (id, v) => {
@@ -1264,7 +1271,7 @@ async function restoreBackupJson(event) {
 }
 
 function exportScoutsCsv() {
-  const header = ["Prenom", "Nom", "Branche", "Matricule", "Naissance", "Parent", "Tel_Parent", "Tel_Secondaire", "Allergies"];
+  const header = ["Prenom", "Nom", "Branche", "Matricule", "Parent", "Tel_Parent", "Allergies"];
   const lines = [header.join(";")];
   (db.scouts || []).forEach((s) => {
     lines.push([
@@ -1272,10 +1279,8 @@ function exportScoutsCsv() {
       s.nom,
       s.branche,
       s.matricule || "",
-      s.naissance || "",
       s.parent_nom || "",
       s.parent_tel || "",
-      s.parent_tel2 || "",
       s.allergies || ""
     ].map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(";"));
   });
@@ -1295,33 +1300,23 @@ function renderAll() {
   renderDashboard();
   renderEffectifsAndPresences();
   renderCotisationsSuivi();
-  renderFinanceSummary();
   renderActivitiesAndProgram();
-  renderChefsList();
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   const today = new Date().toISOString().slice(0, 10);
   const pDate = document.getElementById("presenceDateInput");
   const rDate = document.getElementById("rc_date");
-  const fDate = document.getElementById("fin_date");
   if (pDate && !pDate.value) pDate.value = today;
   if (rDate && !rDate.value) rDate.value = today;
-  if (fDate && !fDate.value) fDate.value = today;
 
-  await initAppData();
   populateChefLoginSelect();
-
-  try {
-    const savedSession = sessionStorage.getItem(SESSION_KEY);
-    if (savedSession) {
-      currentUser = JSON.parse(savedSession);
-      if (currentUser && currentUser.role) {
-        showAppShell();
-        return;
-      }
-    }
-  } catch (e) {}
-
   document.getElementById("loginScreen").style.display = "grid";
+  document.getElementById("appShell").style.display = "none";
+
+  ["click", "keydown", "touchstart", "mousemove"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      if (currentUser) resetIdleTimer();
+    }, { passive: true });
+  });
 });

@@ -19,7 +19,7 @@ const docRefObion = firestoreDb.collection("erp_obion").doc("groupe_principal");
 
 const BACKUP_KEY = "obion_erp_backup_v1";
 const SESSION_KEY = "obion_erp_session_v1";
-const BRANCHES = ["Oisillon", "Meute", "Troupe", "Chemin", "Route"];
+const BRANCHES = ["Oisillons", "Louveteau", "Troupier", "Cheminot", "Routier"];
 
 function cloneSafe(obj) {
   try {
@@ -57,8 +57,8 @@ function normalizeWaPhone(phoneRaw) {
 const defaultData = {
   scouts: [],
   chefs: [
-    { id: "chef_meute", nom: "Akissi Kouamé", branche: "Meute", tel: "" },
-    { id: "chef_troupe", nom: "Yao Konan", branche: "Troupe", tel: "" }
+    { id: "chef_meute", nom: "Akissi Kouamé", branche: "Louveteau", tel: "" },
+    { id: "chef_troupe", nom: "Yao Konan", branche: "Troupier", tel: "" }
   ],
   activites: [],
   programmeEvents: [],
@@ -106,6 +106,21 @@ function normalizeDbStructure(raw) {
   if (!merged.parentMeetingsDone || typeof merged.parentMeetingsDone !== "object") merged.parentMeetingsDone = {};
   if (!Array.isArray(merged.cotisationsCustom)) merged.cotisationsCustom = [];
   if (!merged.cotisationPayments || typeof merged.cotisationPayments !== "object") merged.cotisationPayments = {};
+
+  // Migration douce des anciennes appellations vers les appellations du Groupe OBION.
+  const branchAliases = { Oisillon: "Oisillons", Meute: "Louveteau", Troupe: "Troupier", Chemin: "Cheminot", Route: "Routier" };
+  const migrateBranchValues = (value) => {
+    if (Array.isArray(value)) { value.forEach(migrateBranchValues); return; }
+    if (!value || typeof value !== "object") return;
+    Object.keys(value).forEach((key) => {
+      const item = value[key];
+      if (key === "branche" || key === "branch") {
+        if (typeof item === "string" && branchAliases[item]) value[key] = branchAliases[item];
+        else if (Array.isArray(item)) value[key] = item.map((v) => typeof v === "string" && branchAliases[v] ? branchAliases[v] : v);
+      } else migrateBranchValues(item);
+    });
+  };
+  migrateBranchValues(merged);
   return merged;
 }
 
@@ -388,12 +403,13 @@ async function sendTrackedWhatsAppMessage({
     id: uid("msg"),
     dedupKey: dedupKey || `msg_${Date.now()}`,
     category: category || "Message WhatsApp",
+    status: "préparé_ouvert_non_confirmé",
     recipientLabel: recipientLabel || "",
     weekKey: getIsoWeekKey(),
     sentAt: new Date().toISOString(),
     author: currentUser ? (currentUser.chefNom || currentUser.role) : "Système"
   });
-  await persistDb("Message WhatsApp envoyé", `${category} — ${recipientLabel}`);
+  await persistDb("Message WhatsApp préparé (envoi non vérifié)", `${category} — ${recipientLabel}`);
   renderAll();
   return true;
 }
@@ -591,8 +607,14 @@ async function toggleCotisationPayment(memberId, kind, cotId) {
       date: new Date().toISOString().slice(0, 10),
       type: "recette",
       libelle: `${meta.label} (${memberId})`,
-      montant: meta.montant
+      montant: meta.montant,
+      cotisationKey: key,
+      annulee: false
     });
+  } else if (isPaid) {
+    // Conserve la trace comptable mais exclut l'encaissement annulé des totaux.
+    const linked = (db.finances || []).find((f) => f.cotisationKey === key && f.type === "recette" && !f.annulee);
+    if (linked) { linked.annulee = true; linked.annuleeLe = new Date().toISOString(); }
   }
   await persistDb("Paiement cotisation", `${key} -> ${!isPaid ? "Payée" : "Non payée"}`);
   renderAll();
@@ -917,7 +939,7 @@ function sendProgramInfoToParents(eventId) {
     messageText: msg,
     dedupKey: `prog_info__${ev.id}`,
     category: "Info programme parents",
-    recipientLabel: `${ev.titre} (${ev.branche})`
+    recipientLabel: `${ev.titre} (${ev.branche}) — parent du jeune sélectionné`,
   });
 }
 
@@ -1077,7 +1099,7 @@ function renderDashboard() {
   const totalScouts = (db.scouts || []).length;
   const totalChefs = (db.chefs || []).length;
   const totalRecettes = (db.finances || [])
-    .filter((f) => f.type === "recette")
+    .filter((f) => f.type === "recette" && !f.annulee)
     .reduce((acc, f) => acc + Number(f.montant || 0), 0);
   const alerts3Abs = (db.scouts || []).filter((s) => getConsecutiveAbsences(s.id) >= 3 && !db.parentMeetingsDone[s.id]);
 

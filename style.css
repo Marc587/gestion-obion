@@ -65,10 +65,18 @@ body {
 }
 
 .logo-sm {
-  width: 42px;
-  height: 42px;
-  object-fit: cover;
+  width: 44px;
+  height: 44px;
+  max-width: 44px;
+  max-height: 44px;
+  object-fit: contain;
   border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-weight: 700;
+  font-size: 1rem;
 }
 
 .topbar {

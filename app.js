@@ -407,8 +407,10 @@ async function addScout(event) {
     nom: document.getElementById("sc_nom").value.trim(),
     matricule: document.getElementById("sc_matricule").value.trim(),
     branche: document.getElementById("sc_branche").value,
+    naissance: document.getElementById("sc_naissance")?.value || "",
     parent_nom: document.getElementById("sc_parent_nom").value.trim(),
     parent_tel: document.getElementById("sc_parent_tel").value.trim(),
+    parent_tel2: document.getElementById("sc_parent_tel2")?.value.trim() || "",
     allergies: document.getElementById("sc_allergies").value.trim()
   };
   db.scouts.push(scout);
@@ -464,7 +466,7 @@ function sendParentMeetingInvitation(scoutId) {
   ].join("\n");
 
   sendTrackedWhatsAppMessage({
-    phoneRaw: scout.parent_tel,
+    phoneRaw: scout.parent_tel || scout.parent_tel2,
     messageText: msg,
     dedupKey: `rencontre_parents__${scout.id}`,
     category: "Proposition rencontre parents (3 absences)",
@@ -484,12 +486,17 @@ function renderEffectifsAndPresences() {
   if (!box) return;
   const dateStr = document.getElementById("presenceDateInput")?.value || new Date().toISOString().slice(0, 10);
   const branchFilter = document.getElementById("presenceBranchFilter")?.value || "Toutes";
+  const query = String(document.getElementById("scoutSearchInput")?.value || "").trim().toLowerCase();
 
   const list = (db.scouts || []).filter((s) => {
     if (currentUser && currentUser.role === "cu" && currentUser.branche && currentUser.branche !== "Toutes") {
       if (s.branche !== currentUser.branche) return false;
     }
     if (branchFilter !== "Toutes" && s.branche !== branchFilter) return false;
+    if (query) {
+      const hay = `${s.prenom || ""} ${s.nom || ""} ${s.matricule || ""} ${s.parent_nom || ""}`.toLowerCase();
+      if (!hay.includes(query)) return false;
+    }
     return true;
   });
 
@@ -506,6 +513,7 @@ function renderEffectifsAndPresences() {
             <th>Jeune</th>
             <th>Branche</th>
             <th>Matricule</th>
+            <th>Parent / Contact</th>
             <th>Absence suite</th>
             <th>Statut (${escapeHtml(dateStr)})</th>
             <th>Actions</th>
@@ -520,10 +528,15 @@ function renderEffectifsAndPresences() {
               <tr>
                 <td>
                   <strong>${escapeHtml(s.prenom)} ${escapeHtml(s.nom)}</strong>
+                  ${s.naissance ? `<br><span class="small muted">Né(e) : ${escapeHtml(s.naissance)}</span>` : ""}
                   ${s.allergies ? `<br><span class="small muted">Santé : ${escapeHtml(s.allergies)}</span>` : ""}
                 </td>
                 <td>${escapeHtml(s.branche)}</td>
                 <td>${escapeHtml(s.matricule || "-")}</td>
+                <td>
+                  <span class="small">${escapeHtml(s.parent_nom || "-")}</span>
+                  ${s.parent_tel ? `<br><span class="small muted">${escapeHtml(s.parent_tel)}</span>` : ""}
+                </td>
                 <td>
                   ${streak >= 3 && !meetingDone
                     ? `<span class="badge badge-warning">${streak} abs. de suite — Rencontre parents</span>`
@@ -623,7 +636,7 @@ function sendCotisationReminderWhatsApp(memberId, kind, cotId) {
     nom = `${scout.prenom} ${scout.nom}`;
     branche = scout.branche || "-";
     matriculeTxt = cotId === "annuelle" && scout.matricule ? ` (Matricule : *${scout.matricule}*)` : "";
-    phone = scout.parent_tel || "";
+    phone = scout.parent_tel || scout.parent_tel2 || "";
     salutation = scout.parent_nom ? `Bonjour ${scout.parent_nom}` : "Chers parents";
   }
 
@@ -741,6 +754,53 @@ function renderCotisationsSuivi() {
   `;
 }
 
+// --- TRÉSORERIE (RECETTES & DÉPENSES) ---
+async function addFinanceEntry(event) {
+  event.preventDefault();
+  const type = document.getElementById("fin_type").value;
+  const libelle = document.getElementById("fin_libelle").value.trim();
+  const montant = Number(document.getElementById("fin_montant").value || 0);
+  const date = document.getElementById("fin_date").value || new Date().toISOString().slice(0, 10);
+  if (!libelle || montant <= 0) return;
+
+  db.finances.unshift({
+    id: uid("fin"),
+    date,
+    type,
+    libelle,
+    montant
+  });
+  event.target.reset();
+  document.getElementById("fin_date").value = new Date().toISOString().slice(0, 10);
+  await persistDb("Écriture comptable", `${type.toUpperCase()} : ${libelle} (${formatMoney(montant)})`);
+  renderAll();
+}
+
+function renderFinanceSummary() {
+  const box = document.getElementById("financeSummaryBox");
+  if (!box) return;
+  const recettes = (db.finances || []).filter((f) => f.type === "recette").reduce((s, f) => s + Number(f.montant || 0), 0);
+  const depenses = (db.finances || []).filter((f) => f.type === "depense").reduce((s, f) => s + Number(f.montant || 0), 0);
+  const solde = recettes - depenses;
+  const recent = (db.finances || []).slice(0, 8);
+
+  box.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-box"><div class="muted small">Total Recettes</div><div class="stat-value">${escapeHtml(formatMoney(recettes))}</div></div>
+      <div class="stat-box"><div class="muted small">Total Dépenses</div><div class="stat-value">${escapeHtml(formatMoney(depenses))}</div></div>
+      <div class="stat-box"><div class="muted small">Solde disponible</div><div class="stat-value">${escapeHtml(formatMoney(solde))}</div></div>
+    </div>
+    <div class="mt-2">
+      ${recent.map((f) => `
+        <div class="small" style="padding:5px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+          <span><strong>${f.type === "depense" ? "−" : "+"} ${escapeHtml(f.libelle)}</strong> <span class="muted">(${escapeHtml(f.date || "")})</span></span>
+          <strong>${escapeHtml(formatMoney(f.montant))}</strong>
+        </div>
+      `).join("") || `<p class="muted small">Aucune opération enregistrée.</p>`}
+    </div>
+  `;
+}
+
 // --- REÇUS + IMPRESSION FIABLE + ENVOI WHATSAPP ---
 function populateReceiptScoutSelect() {
   const sel = document.getElementById("rc_scout");
@@ -818,7 +878,7 @@ function sendCurrentReceiptByWhatsApp() {
 
   const msg = `🧾 *REÇU OFFICIEL — GROUPE OBION*\n\n${body}\n\n*${cgNom}* — Groupe OBION`;
   sendTrackedWhatsAppMessage({
-    phoneRaw: scout ? scout.parent_tel : "",
+    phoneRaw: scout ? (scout.parent_tel || scout.parent_tel2) : "",
     messageText: msg,
     dedupKey: `recu_wa__${scoutId || "libre"}__${Date.now().toString().slice(-5)}`,
     category: "Envoi reçu WhatsApp",
@@ -913,7 +973,7 @@ function sendProgramInfoToParents(eventId) {
   ].filter(Boolean).join("\n");
 
   sendTrackedWhatsAppMessage({
-    phoneRaw: targetScout ? targetScout.parent_tel : "",
+    phoneRaw: targetScout ? (targetScout.parent_tel || targetScout.parent_tel2) : "",
     messageText: msg,
     dedupKey: `prog_info__${ev.id}`,
     category: "Info programme parents",
@@ -1076,16 +1136,16 @@ function renderDashboard() {
 
   const totalScouts = (db.scouts || []).length;
   const totalChefs = (db.chefs || []).length;
-  const totalRecettes = (db.finances || [])
-    .filter((f) => f.type === "recette")
-    .reduce((acc, f) => acc + Number(f.montant || 0), 0);
+  const recettes = (db.finances || []).filter((f) => f.type === "recette").reduce((acc, f) => acc + Number(f.montant || 0), 0);
+  const depenses = (db.finances || []).filter((f) => f.type === "depense").reduce((acc, f) => acc + Number(f.montant || 0), 0);
+  const solde = recettes - depenses;
   const alerts3Abs = (db.scouts || []).filter((s) => getConsecutiveAbsences(s.id) >= 3 && !db.parentMeetingsDone[s.id]);
 
   if (statsBox) {
     statsBox.innerHTML = `
       <div class="stat-box"><div class="muted small">Jeunes inscrits</div><div class="stat-value">${totalScouts}</div></div>
       <div class="stat-box"><div class="muted small">Chefs d'Unité</div><div class="stat-value">${totalChefs}</div></div>
-      <div class="stat-box"><div class="muted small">Encaissements enregistrés</div><div class="stat-value">${escapeHtml(formatMoney(totalRecettes))}</div></div>
+      <div class="stat-box"><div class="muted small">Solde caisse</div><div class="stat-value">${escapeHtml(formatMoney(solde))}</div></div>
       <div class="stat-box"><div class="muted small">Alertes 3 absences</div><div class="stat-value">${alerts3Abs.length}</div></div>
     `;
   }
@@ -1124,7 +1184,34 @@ function renderDashboard() {
   }
 }
 
-// --- PARAMÈTRES & EXPORTS ---
+// --- CHEFS D'UNITÉ, PARAMÈTRES & EXPORTS ---
+async function addChef(event) {
+  event.preventDefault();
+  const chef = {
+    id: uid("chef"),
+    nom: document.getElementById("ch_nom").value.trim(),
+    branche: document.getElementById("ch_branche").value,
+    tel: document.getElementById("ch_tel").value.trim()
+  };
+  db.chefs.push(chef);
+  event.target.reset();
+  await persistDb("Ajout Chef d'Unité", `${chef.nom} (${chef.branche})`);
+  renderAll();
+}
+
+function renderChefsList() {
+  const box = document.getElementById("chefsListBox");
+  if (!box) return;
+  box.innerHTML = (db.chefs || []).map((c) => `
+    <div class="alert-item alert-info">
+      <div>
+        <strong>${escapeHtml(c.nom)}</strong> — <span class="small">${escapeHtml(c.branche || "Groupe")}</span>
+        ${c.tel ? `<br><span class="small muted">Tél : ${escapeHtml(c.tel)}</span>` : ""}
+      </div>
+    </div>
+  `).join("");
+}
+
 function populateSettingsForm() {
   const s = db.settings || {};
   const setVal = (id, v) => {
@@ -1177,7 +1264,7 @@ async function restoreBackupJson(event) {
 }
 
 function exportScoutsCsv() {
-  const header = ["Prenom", "Nom", "Branche", "Matricule", "Parent", "Tel_Parent", "Allergies"];
+  const header = ["Prenom", "Nom", "Branche", "Matricule", "Naissance", "Parent", "Tel_Parent", "Tel_Secondaire", "Allergies"];
   const lines = [header.join(";")];
   (db.scouts || []).forEach((s) => {
     lines.push([
@@ -1185,8 +1272,10 @@ function exportScoutsCsv() {
       s.nom,
       s.branche,
       s.matricule || "",
+      s.naissance || "",
       s.parent_nom || "",
       s.parent_tel || "",
+      s.parent_tel2 || "",
       s.allergies || ""
     ].map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(";"));
   });
@@ -1206,15 +1295,19 @@ function renderAll() {
   renderDashboard();
   renderEffectifsAndPresences();
   renderCotisationsSuivi();
+  renderFinanceSummary();
   renderActivitiesAndProgram();
+  renderChefsList();
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   const today = new Date().toISOString().slice(0, 10);
   const pDate = document.getElementById("presenceDateInput");
   const rDate = document.getElementById("rc_date");
+  const fDate = document.getElementById("fin_date");
   if (pDate && !pDate.value) pDate.value = today;
   if (rDate && !rDate.value) rDate.value = today;
+  if (fDate && !fDate.value) fDate.value = today;
 
   await initAppData();
   populateChefLoginSelect();
